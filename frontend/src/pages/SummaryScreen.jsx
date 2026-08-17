@@ -36,6 +36,35 @@ function AnimatedNumber({ value }) {
   return <span>{displayValue.toLocaleString('en-IN')}</span>;
 }
 
+const getAvailableVoices = () => {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) {
+      resolve([]);
+      return;
+    }
+
+    let voices = window.speechSynthesis.getVoices();
+    if (voices && voices.length > 0) {
+      resolve(voices);
+      return;
+    }
+
+    const handleVoicesChanged = () => {
+      voices = window.speechSynthesis.getVoices();
+      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+      resolve(voices || []);
+    };
+
+    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+
+    // Safety fallback timeout after 1 second
+    setTimeout(() => {
+      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+      resolve(window.speechSynthesis.getVoices() || []);
+    }, 1000);
+  });
+};
+
 export default function SummaryScreen() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +98,7 @@ export default function SummaryScreen() {
     };
   }, []);
 
-  const handleReadAloud = () => {
+  const handleReadAloud = async () => {
     if (!('speechSynthesis' in window)) {
       alert('તમારા બ્રાઉઝરમાં અવાજ ફીચર ઉપલબ્ધ નથી / Text to speech not supported');
       return;
@@ -91,10 +120,10 @@ export default function SummaryScreen() {
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
 
-    // Try to get Gujarati or Hindi voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const guVoice = voices.find((v) => v.lang.includes('gu'));
-    const hiVoice = voices.find((v) => v.lang.includes('hi'));
+    // Wait for voices to load asynchronously
+    const voices = await getAvailableVoices();
+    const guVoice = voices.find((v) => v.lang && v.lang.toLowerCase().includes('gu'));
+    const hiVoice = voices.find((v) => v.lang && v.lang.toLowerCase().includes('hi'));
 
     if (guVoice) {
       utterance.voice = guVoice;

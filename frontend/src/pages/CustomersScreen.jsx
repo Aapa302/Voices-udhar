@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RotateCcw, User, Phone, ChevronRight, Loader2, Users } from 'lucide-react';
+import { Search, RotateCcw, Phone, ChevronRight, Loader2, Users, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getCustomers } from '../api/customers';
 
@@ -130,6 +130,7 @@ export default function CustomersScreen() {
           {filteredCustomers.map((customer, index) => {
             const udhaarVal = Number(customer.totalUdhaar) || 0;
             const hasUdhaar = udhaarVal > 0;
+            const hasRealPhone = customer.phone && customer.phone !== '0000000000';
 
             return (
               <motion.div
@@ -143,10 +144,15 @@ export default function CustomersScreen() {
               >
                 <div className="customer-info">
                   <div className="customer-name">{customer.name}</div>
-                  {customer.phone && customer.phone !== '0000000000' && (
+                  {hasRealPhone ? (
                     <div className="customer-phone">
                       <Phone size={14} color="#94A3B8" />
                       {customer.phone}
+                    </div>
+                  ) : (
+                    <div className="customer-phone" style={{ color: '#FDA4AF', fontSize: '0.78rem' }}>
+                      <AlertTriangle size={12} color="#F43F5E" />
+                      નંબર નથી / Phone not captured
                     </div>
                   )}
                 </div>

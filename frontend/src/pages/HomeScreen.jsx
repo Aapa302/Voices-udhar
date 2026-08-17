@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check } from 'lucide-react';
+import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { processVoiceAudio } from '../api/voice';
 import { getCustomers, createCustomer } from '../api/customers';
@@ -51,11 +51,13 @@ export default function HomeScreen() {
   // Form state for Editing
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editAmount, setEditAmount] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [editTxType, setEditTxType] = useState('udhaar_add');
 
-  // Media recorder refs
+  // Media recorder refs & recording start time
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const recordingStartTimeRef = useRef(null);
 
   // Cleanup media recorder stream on unmount
   useEffect(() => {
@@ -70,6 +72,7 @@ export default function HomeScreen() {
   const startRecording = async () => {
     setErrorMessage('');
     audioChunksRef.current = [];
+    recordingStartTimeRef.current = Date.now();
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setErrorMessage('તમારા બ્રાઉઝરમાં માઇક્રોફોન સુવિધા ઉપલબ્ધ નથી. / Microphone not supported in browser.');
@@ -105,6 +108,15 @@ export default function HomeScreen() {
       mediaRecorder.onstop = async () => {
         // Stop audio tracks
         stream.getTracks().forEach((track) => track.stop());
+
+        // Check minimum recording duration (500ms)
+        const duration = Date.now() - (recordingStartTimeRef.current || 0);
+        if (duration < 500) {
+          setErrorMessage('ખૂબ ટૂંકું રેકોર્ડિંગ (0.5 સેકન્ડથી ઓછું). / Recording too short (under 500ms).');
+          setScreenState(SCREEN_STATE.ERROR);
+          return;
+        }
+
         const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
         await handleAudioRecorded(audioBlob, mediaRecorder.mimeType || 'audio/webm');
       };
@@ -153,11 +165,13 @@ export default function HomeScreen() {
           const txType = mapIntentToTxType(result.intent);
           const customerName = result.customer_name || 'ગ્રાહક (Unknown)';
           const amount = result.amount || 0;
+          const phone = result.customer_phone || '';
 
           setParsedData({
             customerName,
             amount,
             txType,
+            phone,
             items: result.items || [],
             transcription: result.transcription_gujarati || '',
           });
@@ -165,12 +179,13 @@ export default function HomeScreen() {
           // Pre-fill edit fields
           setEditCustomerName(customerName);
           setEditAmount(amount.toString());
+          setEditPhone(phone);
           setEditTxType(txType);
 
           setScreenState(SCREEN_STATE.CONFIRMATION);
         } catch (apiErr) {
           console.error('Voice processing API error:', apiErr);
-          setErrorMessage('સંભળાયું નથી, ફરી બોલો / Sunai nahi diya, phir se bolo');
+          setErrorMessage(apiErr.message || 'સંભળાયું નથી, ફરી બોલો / Sunai nahi diya, phir se bolo');
           setScreenState(SCREEN_STATE.ERROR);
         }
       };
@@ -182,7 +197,7 @@ export default function HomeScreen() {
   };
 
   // 4. Save Transaction
-  const executeSave = async (finalName, finalAmount, finalTxType) => {
+  const executeSave = async (finalName, finalAmount, finalTxType, finalPhone = '') => {
     setScreenState(SCREEN_STATE.SAVING);
     setErrorMessage('');
 
@@ -195,6 +210,7 @@ export default function HomeScreen() {
 
     try {
       const cleanName = finalName.trim();
+      const cleanPhone = finalPhone.trim();
       const numAmount = Number(finalAmount);
 
       if (!cleanName) {
@@ -209,18 +225,33 @@ export default function HomeScreen() {
         return;
       }
 
-      // Check if customer exists
+      // Check if customer exists using fuzzy matching
       const existingCustomers = await getCustomers(shopkeeperId);
-      let customer = existingCustomers.find(
-        (c) => c.name && c.name.trim().toLowerCase() === cleanName.toLowerCase()
-      );
+      const normClean = cleanName.toLowerCase();
 
-      // Create customer if not found
+      let customer = existingCustomers.find((c) => {
+        if (!c.name) return false;
+        const normC = c.name.trim().toLowerCase();
+        if (normC === normClean) return true;
+        if (normClean.length >= 2 && normC.length >= 2) {
+          return normC.includes(normClean) || normClean.includes(normC);
+        }
+        return false;
+      });
+
+      // Create customer if not found, or update phone if user provided a real phone
       if (!customer) {
         customer = await createCustomer({
           shopkeeperId,
           name: cleanName,
-          phone: '0000000000',
+          phone: cleanPhone || '0000000000',
+        });
+      } else if (cleanPhone && cleanPhone !== '0000000000' && (!customer.phone || customer.phone === '0000000000')) {
+        customer = await createCustomer({
+          shopkeeperId,
+          customerId: customer.customerId,
+          name: customer.name,
+          phone: cleanPhone,
         });
       }
 
@@ -239,8 +270,8 @@ export default function HomeScreen() {
         const billResult = await generateBillApi({
           shopkeeperId,
           customerId: customer.customerId,
-          customerName: cleanName,
-          customerPhone: customer.phone,
+          customerName: customer.name || cleanName,
+          customerPhone: customer.phone || cleanPhone || '0000000000',
           items: parsedData?.items || [],
           totalAmount: numAmount,
         });
@@ -268,12 +299,12 @@ export default function HomeScreen() {
 
   const handleConfirmDirect = () => {
     if (!parsedData) return;
-    executeSave(parsedData.customerName, parsedData.amount, parsedData.txType);
+    executeSave(parsedData.customerName, parsedData.amount, parsedData.txType, parsedData.phone);
   };
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
-    executeSave(editCustomerName, editAmount, editTxType);
+    executeSave(editCustomerName, editAmount, editTxType, editPhone);
   };
 
   const resetToIdle = () => {
@@ -437,6 +468,33 @@ export default function HomeScreen() {
             <div className="parsed-main-text">
               {parsedData.customerName}, ₹{parsedData.amount}
             </div>
+
+            {(!parsedData.phone || parsedData.phone === '0000000000') ? (
+              <div
+                onClick={() => setScreenState(SCREEN_STATE.EDITING)}
+                style={{
+                  marginTop: '0.5rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.8rem',
+                  color: '#FDA4AF',
+                  backgroundColor: 'rgba(244, 63, 94, 0.12)',
+                  padding: '0.25rem 0.6rem',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(244, 63, 94, 0.3)',
+                  cursor: 'pointer'
+                }}
+              >
+                <AlertTriangle size={14} color="#F43F5E" />
+                <span>ફોન નંબર મળ્યો નથી (ઉમેરવા ટેપ કરો) / Phone number not captured, tap to add</span>
+              </div>
+            ) : (
+              <div style={{ marginTop: '0.4rem', fontSize: '0.85rem', color: '#94A3B8' }}>
+                📞 {parsedData.phone}
+              </div>
+            )}
+
             <div style={{ marginTop: '0.5rem' }}>
               <span className={`action-badge ${parsedData.txType}`}>
                 {getActionLabel(parsedData.txType).gu} / {getActionLabel(parsedData.txType).en}
@@ -484,6 +542,21 @@ export default function HomeScreen() {
                 value={editCustomerName}
                 onChange={(e) => setEditCustomerName(e.target.value)}
                 required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="editPhone">
+                મોબાઇલ નંબર
+                <span className="form-sublabel"> Phone Number (Optional)</span>
+              </label>
+              <input
+                id="editPhone"
+                type="tel"
+                className="form-input"
+                placeholder="9876543210"
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
               />
             </div>
 

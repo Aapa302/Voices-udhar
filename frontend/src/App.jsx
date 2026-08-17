@@ -81,6 +81,14 @@ export default function App() {
       setShopName(savedName);
     }
     setLoading(false);
+
+    const handleAuthFailure = () => {
+      setShopkeeperId(null);
+      setShopName('');
+    };
+
+    window.addEventListener('voice_udhar_auth_failed', handleAuthFailure);
+    return () => window.removeEventListener('voice_udhar_auth_failed', handleAuthFailure);
   }, []);
 
   const handleOnboardingComplete = (data) => {
