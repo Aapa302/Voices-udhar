@@ -7,7 +7,8 @@ const { v4: uuidv4 } = require('uuid');
  */
 const addOrUpdateCustomer = async (req, res) => {
   try {
-    const { customerId: providedCustomerId, shopkeeperId, name, phone, totalUdhaar } = req.body;
+    const body = req.body || {};
+    const { customerId: providedCustomerId, shopkeeperId, name, phone, totalUdhaar } = body;
 
     if (!shopkeeperId || !name || !phone) {
       return res.status(400).json({
@@ -48,13 +49,18 @@ const addOrUpdateCustomer = async (req, res) => {
 
     return res.status(200).json({
       message: existingDoc.exists ? 'Customer updated successfully' : 'Customer created successfully',
+      customerId,
+      shopkeeperId,
+      name,
+      phone,
+      totalUdhaar: customerData.totalUdhaar,
       data: customerData,
     });
   } catch (error) {
     console.error('Error adding/updating customer:', error);
     return res.status(500).json({
       error: 'Internal Server Error',
-      message: error.message,
+      message: error ? error.message || String(error) : 'Failed to save customer',
     });
   }
 };
@@ -88,7 +94,7 @@ const getCustomersByShopkeeper = async (req, res) => {
     console.error('Error fetching customers:', error);
     return res.status(500).json({
       error: 'Internal Server Error',
-      message: error.message,
+      message: error ? error.message || String(error) : 'Failed to fetch customer list',
     });
   }
 };

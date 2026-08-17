@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
  */
 const logTransaction = async (req, res) => {
   try {
+    const body = req.body || {};
     const {
       transactionId: providedId,
       shopkeeperId,
@@ -17,7 +18,7 @@ const logTransaction = async (req, res) => {
       items,
       timestamp,
       rawVoiceText,
-    } = req.body;
+    } = body;
 
     if (!shopkeeperId || !customerId || !type || amount === undefined || amount === null) {
       return res.status(400).json({
@@ -81,13 +82,18 @@ const logTransaction = async (req, res) => {
 
     return res.status(201).json({
       message: 'Transaction logged successfully',
+      transactionId,
+      shopkeeperId,
+      customerId,
+      type,
+      amount: numericAmount,
       data: transactionData,
     });
   } catch (error) {
     console.error('Error logging transaction:', error);
     return res.status(500).json({
       error: 'Internal Server Error',
-      message: error.message,
+      message: error ? error.message || String(error) : 'Failed to log transaction',
     });
   }
 };
@@ -121,7 +127,7 @@ const getTransactionsByCustomer = async (req, res) => {
     console.error('Error fetching transactions:', error);
     return res.status(500).json({
       error: 'Internal Server Error',
-      message: error.message,
+      message: error ? error.message || String(error) : 'Failed to fetch transaction history',
     });
   }
 };
