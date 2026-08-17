@@ -8,10 +8,18 @@ const { v4: uuidv4 } = require('uuid');
  */
 const logTransaction = async (req, res) => {
   try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
     const body = req.body || {};
     const {
       transactionId: providedId,
-      shopkeeperId,
+      shopkeeperId: providedShopkeeperId,
       customerId,
       type,
       amount,
@@ -20,10 +28,17 @@ const logTransaction = async (req, res) => {
       rawVoiceText,
     } = body;
 
-    if (!shopkeeperId || !customerId || !type || amount === undefined || amount === null) {
+    if (providedShopkeeperId && providedShopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    if (!customerId || !type || amount === undefined || amount === null) {
       return res.status(400).json({
         error: 'Bad Request',
-        message: 'shopkeeperId, customerId, type, and amount are required',
+        message: 'customerId, type, and amount are required',
       });
     }
 
@@ -43,12 +58,30 @@ const logTransaction = async (req, res) => {
       });
     }
 
+    // Verify customer exists and belongs to authShopkeeperId
+    const customerRef = db.collection('customers').doc(customerId);
+    const customerDoc = await customerRef.get();
+
+    if (!customerDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Customer not found',
+      });
+    }
+
+    if (customerDoc.data().shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Customer does not belong to authenticated shopkeeper',
+      });
+    }
+
     const transactionId = providedId || `tx_${uuidv4()}`;
     const txTimestamp = timestamp || new Date().toISOString();
 
     const transactionData = {
       transactionId,
-      shopkeeperId,
+      shopkeeperId: authShopkeeperId,
       customerId,
       type,
       amount: numericAmount,
@@ -61,29 +94,24 @@ const logTransaction = async (req, res) => {
     await db.collection('transactions').doc(transactionId).set(transactionData);
 
     // Update customer's totalUdhaar
-    const customerRef = db.collection('customers').doc(customerId);
-    const customerDoc = await customerRef.get();
+    const currentUdhaar = Number(customerDoc.data().totalUdhaar || 0);
+    let newUdhaar = currentUdhaar;
 
-    if (customerDoc.exists) {
-      const currentUdhaar = Number(customerDoc.data().totalUdhaar || 0);
-      let newUdhaar = currentUdhaar;
-
-      if (type === 'udhaar_add') {
-        newUdhaar += numericAmount;
-      } else if (type === 'udhaar_paid') {
-        newUdhaar -= numericAmount;
-      }
-
-      await customerRef.update({
-        totalUdhaar: newUdhaar,
-        updatedAt: new Date().toISOString(),
-      });
+    if (type === 'udhaar_add') {
+      newUdhaar += numericAmount;
+    } else if (type === 'udhaar_paid') {
+      newUdhaar -= numericAmount;
     }
+
+    await customerRef.update({
+      totalUdhaar: newUdhaar,
+      updatedAt: new Date().toISOString(),
+    });
 
     return res.status(201).json({
       message: 'Transaction logged successfully',
       transactionId,
-      shopkeeperId,
+      shopkeeperId: authShopkeeperId,
       customerId,
       type,
       amount: numericAmount,
@@ -100,10 +128,18 @@ const logTransaction = async (req, res) => {
 
 /**
  * GET /api/transactions/:customerId
- * Get transaction history for a customer
+ * Get transaction history for a customer (scoped to authenticated shopkeeper)
  */
 const getTransactionsByCustomer = async (req, res) => {
   try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
     const { customerId } = req.params;
 
     if (!customerId) {
@@ -113,7 +149,28 @@ const getTransactionsByCustomer = async (req, res) => {
       });
     }
 
-    const snapshot = await db.collection('transactions').where('customerId', '==', customerId).get();
+    // Verify customer exists and belongs to authShopkeeperId
+    const customerDoc = await db.collection('customers').doc(customerId).get();
+
+    if (!customerDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Customer not found',
+      });
+    }
+
+    if (customerDoc.data().shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Customer does not belong to authenticated shopkeeper',
+      });
+    }
+
+    const snapshot = await db
+      .collection('transactions')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .where('customerId', '==', customerId)
+      .get();
 
     const transactions = [];
     snapshot.forEach((doc) => {

@@ -15,6 +15,11 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
     return collections[colName];
   };
 
+  /**
+   * MockQuery supports basic filtering operators: '==', '>', '<', '>=', '<='.
+   * WARNING: This mock implementation is intended for unit/integration tests and mock mode.
+   * Complex Firestore queries (e.g. array-contains, in, or compound indexes) are not supported in this mock.
+   */
   class MockQuery {
     constructor(colName, filters = []) {
       this.colName = colName;
@@ -31,8 +36,17 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
       for (const [id, data] of col.entries()) {
         let match = true;
         for (const filter of this.filters) {
+          const val = data[filter.field];
           if (filter.op === '==') {
-            if (data[filter.field] !== filter.value) match = false;
+            if (val !== filter.value) match = false;
+          } else if (filter.op === '>') {
+            if (!(val > filter.value)) match = false;
+          } else if (filter.op === '<') {
+            if (!(val < filter.value)) match = false;
+          } else if (filter.op === '>=') {
+            if (!(val >= filter.value)) match = false;
+          } else if (filter.op === '<=') {
+            if (!(val <= filter.value)) match = false;
           }
         }
         if (match) {

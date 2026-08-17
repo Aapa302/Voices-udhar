@@ -81,13 +81,52 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
     const result = await model.generateContent([prompt, audioPart]);
     const responseText = result.response.text();
 
-    // Clean potential markdown quotes/codeblocks from AI output
-    const cleanedJsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    /**
+     * Robust JSON extraction function:
+     * 1. First, strip markdown code block fences and try JSON.parse.
+     * 2. Next, use regex to extract the first valid JSON object `{ ... }` or array `[ ... ]`.
+     * 3. Fallback: attempt JSON.parse on progressively trimmed substrings starting from the first `{` to last `}`.
+     */
+    const extractJson = (rawText) => {
+      if (!rawText || typeof rawText !== 'string') return null;
 
-    let parsedResult;
-    try {
-      parsedResult = JSON.parse(cleanedJsonString);
-    } catch (parseError) {
+      // 1. Direct clean of code blocks
+      const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch (e) {
+        // Continue to regex
+      }
+
+      // 2. Regex search for JSON object or array
+      const jsonRegex = /\{[\s\S]*\}|\[[\s\S]*\]/;
+      const match = rawText.match(jsonRegex);
+      if (match) {
+        try {
+          return JSON.parse(match[0]);
+        } catch (e) {
+          // Continue to progressive fallback
+        }
+      }
+
+      // 3. Progressive substring fallback from first '{' to last '}'
+      const firstBrace = rawText.indexOf('{');
+      const lastBrace = rawText.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        const candidate = rawText.substring(firstBrace, lastBrace + 1);
+        try {
+          return JSON.parse(candidate);
+        } catch (e) {
+          // Fall through
+        }
+      }
+
+      return null;
+    };
+
+    let parsedResult = extractJson(responseText);
+
+    if (!parsedResult) {
       console.error('Failed to parse Gemini output as JSON:', responseText);
       parsedResult = {
         transcription_gujarati: responseText,
