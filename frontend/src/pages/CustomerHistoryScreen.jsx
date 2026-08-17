@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Loader2, Calendar, ShoppingBag, Receipt, RotateCcw, FileText } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { getTransactionsByCustomer } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
 import BillModal from '../components/BillModal';
@@ -103,37 +104,37 @@ export default function CustomerHistoryScreen() {
 
       {/* Back Button & Title Header */}
       <div className="history-header">
-        <button className="back-button" onClick={() => navigate('/customers')}>
-          <ArrowLeft size={20} />
+        <motion.button whileTap={{ scale: 0.95 }} className="back-button" onClick={() => navigate('/customers')}>
+          <ArrowLeft size={20} color="#4C1D95" />
           પાછા જાઓ / Back
-        </button>
-        <button className="btn-icon" onClick={fetchHistory} title="Refresh" style={{ marginLeft: 'auto' }}>
-          <RotateCcw size={20} />
-        </button>
+        </motion.button>
+        <motion.button whileTap={{ scale: 0.92 }} className="btn-icon" onClick={fetchHistory} title="Refresh" style={{ marginLeft: 'auto', backgroundColor: '#ffffff', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
+          <RotateCcw size={20} color="#6D28D9" />
+        </motion.button>
       </div>
 
       {/* Customer Summary Card */}
       {customerFromState && (
-        <div className="customer-summary-card">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="customer-summary-card">
           <div>
-            <h2 style={{ fontSize: '1.35rem', color: '#0f172a' }}>{customerFromState.name}</h2>
+            <h2 style={{ fontSize: '1.4rem', color: '#0F172A', letterSpacing: '-0.01em' }}>{customerFromState.name}</h2>
             {customerFromState.phone && customerFromState.phone !== '0000000000' && (
-              <p style={{ color: '#64748b', fontSize: '0.95rem', marginTop: '0.2rem' }}>
+              <p style={{ color: '#64748B', fontSize: '0.95rem', marginTop: '0.2rem', fontWeight: '500' }}>
                 {customerFromState.phone}
               </p>
             )}
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '600' }}>કુલ બાકી / Total Udhaar</div>
+            <div style={{ fontSize: '0.825rem', color: '#64748B', fontWeight: '700' }}>કુલ બાકી / Total Udhaar</div>
             <div style={{
-              fontSize: '1.5rem',
+              fontSize: '1.6rem',
               fontWeight: '800',
-              color: Number(customerFromState.totalUdhaar) > 0 ? '#dc2626' : '#16a34a'
+              color: Number(customerFromState.totalUdhaar) > 0 ? '#F97316' : '#10B981'
             }}>
               ₹{Number(customerFromState.totalUdhaar) || 0}
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {error && <div className="error-banner">{error}</div>}
@@ -141,25 +142,26 @@ export default function CustomerHistoryScreen() {
       {/* Loading State */}
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 0' }}>
-          <Loader2 className="animate-spin" size={40} color="#2563eb" />
-          <p style={{ marginTop: '1rem', color: '#64748b', fontSize: '1.1rem' }}>
+          <Loader2 className="animate-spin" size={44} color="#6D28D9" />
+          <p style={{ marginTop: '1rem', color: '#64748B', fontSize: '1.1rem', fontWeight: '600' }}>
             હિસ્ટ્રી લોડ થઈ રહી છે... / Loading history...
           </p>
         </div>
       ) : transactions.length === 0 ? (
         /* Empty State */
-        <div className="placeholder-card">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="placeholder-card">
           <div style={{
-            width: '64px',
-            height: '64px',
-            backgroundColor: '#eff6ff',
-            color: '#2563eb',
-            borderRadius: '50%',
+            width: '72px',
+            height: '72px',
+            background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
+            color: '#6D28D9',
+            borderRadius: '20px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            boxShadow: '0 8px 20px rgba(109, 40, 217, 0.12)'
           }}>
-            <Receipt size={32} />
+            <Receipt size={36} />
           </div>
           <h2 className="placeholder-title">કોઈ ટ્રાન્ઝેક્શન મળ્યું નથી</h2>
           <p className="placeholder-text">
@@ -167,36 +169,42 @@ export default function CustomerHistoryScreen() {
             <br />
             No transaction history found for this customer.
           </p>
-        </div>
+        </motion.div>
       ) : (
         /* Transaction History List */
         <div>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '0.875rem', color: '#334155' }}>
+          <h3 style={{ fontSize: '1.15rem', marginBottom: '1rem', color: '#0F172A' }}>
             ટ્રાન્ઝેક્શન હિસ્ટ્રી / Transaction History
           </h3>
-          {transactions.map((tx) => {
+          {transactions.map((tx, index) => {
             const actionInfo = getActionLabel(tx.type);
             const isUdhaarAdd = tx.type === 'udhaar_add';
 
             return (
-              <div key={tx.transactionId} className="transaction-card">
+              <motion.div
+                key={tx.transactionId}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: index * 0.04 }}
+                className="transaction-card"
+              >
                 <div className="transaction-top">
                   <span className={`action-badge ${actionInfo.badgeClass}`}>
                     {actionInfo.gu} / {actionInfo.en}
                   </span>
-                  <div className="transaction-amount" style={{ color: isUdhaarAdd ? '#dc2626' : '#16a34a' }}>
+                  <div className="transaction-amount" style={{ color: isUdhaarAdd ? '#F97316' : '#10B981' }}>
                     {isUdhaarAdd ? '+' : '-'}₹{tx.amount}
                   </div>
                 </div>
 
-                <div className="transaction-date" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <Calendar size={14} />
+                <div className="transaction-date" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Calendar size={14} color="#64748B" />
                   {formatDate(tx.timestamp)}
                 </div>
 
                 {tx.items && tx.items.length > 0 && (
                   <div className="transaction-items">
-                    <span style={{ fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <span style={{ fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#4C1D95' }}>
                       <ShoppingBag size={14} /> વસ્તૂઓ / Items:
                     </span>{' '}
                     {tx.items.join(', ')}
@@ -204,19 +212,23 @@ export default function CustomerHistoryScreen() {
                 )}
 
                 {tx.rawVoiceText && (
-                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '0.2rem' }}>
+                  <div style={{ fontSize: '0.825rem', color: '#94A3B8', fontStyle: 'italic', marginTop: '0.2rem' }}>
                     "{tx.rawVoiceText}"
                   </div>
                 )}
 
                 <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
                     className="btn-secondary"
                     style={{
-                      padding: '0.4rem 0.875rem',
+                      padding: '0.4rem 0.9rem',
                       fontSize: '0.875rem',
                       minHeight: '38px',
                       width: 'auto',
+                      fontWeight: '700',
+                      borderColor: '#DDD6FE',
+                      color: '#6D28D9'
                     }}
                     onClick={() => handleViewBill(tx)}
                     disabled={loadingBillTxId === tx.transactionId}
@@ -224,12 +236,12 @@ export default function CustomerHistoryScreen() {
                     {loadingBillTxId === tx.transactionId ? (
                       <Loader2 className="animate-spin" size={16} />
                     ) : (
-                      <FileText size={16} />
+                      <FileText size={16} color="#6D28D9" />
                     )}
                     બીલ જુઓ / Bill Dekho
-                  </button>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
