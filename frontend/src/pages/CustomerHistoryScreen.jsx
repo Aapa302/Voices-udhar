@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Loader2, Calendar, ShoppingBag, Receipt, RotateCcw, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getTransactionsByCustomer } from '../api/transactions';
+import { getCustomerDetail } from '../api/customers';
 import { generateBillApi } from '../api/bill';
 import BillModal from '../components/BillModal';
 
@@ -25,14 +26,26 @@ export default function CustomerHistoryScreen() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Customer state passed from navigation state or loaded
-  const customerFromState = location.state?.customer;
+  // Customer state initialized from navigation state or loaded from API
+  const [customer, setCustomer] = useState(location.state?.customer || null);
 
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [billModalData, setBillModalData] = useState(null);
   const [loadingBillTxId, setLoadingBillTxId] = useState(null);
+
+  const fetchCustomer = async () => {
+    if (!customerId) return;
+    try {
+      const custData = await getCustomerDetail(customerId);
+      if (custData) {
+        setCustomer(custData);
+      }
+    } catch (err) {
+      console.error('Error fetching customer detail:', err);
+    }
+  };
 
   const fetchHistory = async () => {
     if (!customerId) return;
@@ -53,8 +66,14 @@ export default function CustomerHistoryScreen() {
   };
 
   useEffect(() => {
+    fetchCustomer();
     fetchHistory();
   }, [customerId]);
+
+  const handleRefresh = () => {
+    fetchCustomer();
+    fetchHistory();
+  };
 
   const handleViewBill = async (tx) => {
     const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
@@ -64,8 +83,8 @@ export default function CustomerHistoryScreen() {
       const bill = await generateBillApi({
         shopkeeperId,
         customerId: tx.customerId,
-        customerName: customerFromState?.name || 'Valued Customer',
-        customerPhone: customerFromState?.phone || '',
+        customerName: customer?.name || 'Valued Customer',
+        customerPhone: customer?.phone || '',
         items: tx.items || [],
         totalAmount: tx.amount,
       });
@@ -111,7 +130,7 @@ export default function CustomerHistoryScreen() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           className="btn-icon"
-          onClick={fetchHistory}
+          onClick={handleRefresh}
           title="Refresh"
           style={{
             marginLeft: 'auto',
@@ -125,15 +144,19 @@ export default function CustomerHistoryScreen() {
       </div>
 
       {/* Customer Summary Card */}
-      {customerFromState && (
+      {customer && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="customer-summary-card">
           <div>
             <h2 style={{ fontSize: '1.4rem', color: '#F8FAFC', letterSpacing: '-0.01em', fontFamily: "'Outfit', sans-serif" }}>
-              {customerFromState.name}
+              {customer.name}
             </h2>
-            {customerFromState.phone && customerFromState.phone !== '0000000000' && (
+            {customer.phone && customer.phone !== '0000000000' ? (
               <p style={{ color: '#94A3B8', fontSize: '0.95rem', marginTop: '0.2rem', fontWeight: '500' }}>
-                {customerFromState.phone}
+                {customer.phone}
+              </p>
+            ) : (
+              <p style={{ color: '#F43F5E', fontSize: '0.825rem', marginTop: '0.2rem', fontWeight: '500' }}>
+                ⚠️ ફોન નંબર મળ્યો નથી / Phone number not captured
               </p>
             )}
           </div>
@@ -144,10 +167,10 @@ export default function CustomerHistoryScreen() {
               style={{
                 fontSize: '1.7rem',
                 fontWeight: '900',
-                color: Number(customerFromState.totalUdhaar) > 0 ? '#F97316' : '#10B981'
+                color: Number(customer.totalUdhaar) > 0 ? '#F97316' : '#10B981'
               }}
             >
-              ₹{Number(customerFromState.totalUdhaar) || 0}
+              ₹{Number(customer.totalUdhaar) || 0}
             </div>
           </div>
         </motion.div>

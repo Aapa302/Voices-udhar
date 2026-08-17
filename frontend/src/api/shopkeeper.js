@@ -1,4 +1,33 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+async function handleApiResponse(response, defaultErrorMsg) {
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      localStorage.removeItem('voice_udhar_shopkeeper_id');
+      localStorage.removeItem('voice_udhar_api_key');
+      localStorage.removeItem('voice_udhar_shop_name');
+      localStorage.setItem('voice_udhar_auth_error', 'સેશન સમાપ્ત થઈ ગયું છે, કૃપા કરીને ફરી નોંધણી કરો / Session expired, please register again.');
+      window.dispatchEvent(new Event('voice_udhar_auth_failed'));
+      throw new Error('સેશન સમાપ્ત થઈ ગયું છે, કૃપા કરીને ફરી નોંધણી કરો / Session expired, please register again.');
+    }
+
+    let errorData = null;
+    try {
+      errorData = await response.json();
+    } catch (e) {
+      // ignore JSON parse failure
+    }
+
+    const msg = (errorData && errorData.message) || response.statusText || defaultErrorMsg;
+    throw new Error(msg);
+  }
+
+  try {
+    return await response.json();
+  } catch (e) {
+    throw new Error('અમાન્ય સર્વર પ્રતિસાદ / Invalid JSON response from server');
+  }
+}
 
 /**
  * Register a new shopkeeper.
@@ -14,11 +43,5 @@ export async function createShopkeeper(data) {
     body: JSON.stringify(data),
   });
 
-  const resData = await response.json();
-
-  if (!response.ok) {
-    throw new Error(resData.message || 'દુકાનદાર બનાવવામાં ભૂલ આવી / Failed to create shopkeeper');
-  }
-
-  return resData;
+  return await handleApiResponse(response, 'દુકાનદાર બનાવવામાં ભૂલ આવી / Failed to create shopkeeper');
 }

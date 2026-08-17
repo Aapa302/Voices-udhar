@@ -1,5 +1,5 @@
 import React from 'react';
-import { Share2, X, Receipt, User, Calendar, Sparkles } from 'lucide-react';
+import { Share2, X, Receipt, User, Calendar, Sparkles, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function BillModal({ billData, onClose }) {
@@ -14,6 +14,8 @@ export default function BillModal({ billData, onClose }) {
     date = new Date().toLocaleDateString('gu-IN', { year: 'numeric', month: 'short', day: 'numeric' }),
     whatsappShareLink,
   } = billData;
+
+  const isDummyPhone = !customerPhone || customerPhone === '0000000000' || customerPhone.trim() === '';
 
   const handleWhatsAppShare = () => {
     let link = whatsappShareLink;
@@ -83,9 +85,14 @@ export default function BillModal({ billData, onClose }) {
               <User size={16} color="#F0C674" />
               <strong>ગ્રાહક / Customer:</strong> {customerName}
             </div>
-            {customerPhone && customerPhone !== '0000000000' && (
+            {!isDummyPhone ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94A3B8', fontSize: '0.875rem' }}>
                 મોબાઇલ / Phone: {customerPhone}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#FDA4AF', fontSize: '0.825rem', fontWeight: '600' }}>
+                <AlertTriangle size={14} color="#F43F5E" />
+                ફોન નંબર મળ્યો નથી / Phone number not captured
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94A3B8', fontSize: '0.875rem' }}>
@@ -125,10 +132,28 @@ export default function BillModal({ billData, onClose }) {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <motion.button whileTap={{ scale: 0.98 }} className="btn-whatsapp" onClick={handleWhatsAppShare}>
-            <Share2 size={22} />
-            WhatsApp પર મોકલો / Send on WhatsApp
-          </motion.button>
+          {isDummyPhone ? (
+            <div style={{
+              padding: '0.85rem 1rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(244, 63, 94, 0.12)',
+              border: '1px solid rgba(244, 63, 94, 0.3)',
+              color: '#FDA4AF',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              textAlign: 'center',
+              lineHeight: '1.4'
+            }}>
+              ⚠️ WhatsApp પર મોકલવા માટે ગ્રાહકનો સાચો ફોન નંબર ઉમેરો.
+              <br />
+              Please add customer's real phone number first to share on WhatsApp.
+            </div>
+          ) : (
+            <motion.button whileTap={{ scale: 0.98 }} className="btn-whatsapp" onClick={handleWhatsAppShare}>
+              <Share2 size={22} />
+              WhatsApp પર મોકલો / Send on WhatsApp
+            </motion.button>
+          )}
           <motion.button whileTap={{ scale: 0.98 }} className="btn-secondary" onClick={onClose}>
             પૂરું થયું / Done
           </motion.button>

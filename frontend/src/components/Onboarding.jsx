@@ -7,7 +7,14 @@ export default function Onboarding({ onComplete }) {
   const [shopName, setShopName] = useState('');
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    const savedErr = localStorage.getItem('voice_udhar_auth_error');
+    if (savedErr) {
+      localStorage.removeItem('voice_udhar_auth_error');
+      return savedErr;
+    }
+    return '';
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
