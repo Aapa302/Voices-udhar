@@ -2,10 +2,16 @@
 
 Monorepo for Voice Udhar - Shopkeeper Billing & Udhaar Tracker.
 
+## Features
+
+- **Onboarding**: Fast shopkeeper setup with persistent local storage.
+- **Voice Recording & AI Processing**: Record Gujarati voice billing commands, process with Gemini AI, preview extracted customer & amount details, edit if needed ("Sudharo"), and save transactions seamlessly ("Save ho gaya!").
+- **Bilingual Interface**: Gujarati primary script with English/Hindi secondary support, optimized for mobile devices.
+
 ## Projects
 
-- [`/backend`](./backend): Express.js REST API with Firestore database integration.
-- [`/frontend`](./frontend): React/Vite progressive web app (PWA) with mobile-first design and bilingual support (Gujarati / English).
+- [`/backend`](./backend): Express.js REST API with Firestore database and Gemini AI integration.
+- [`/frontend`](./frontend): React/Vite progressive web app (PWA) with mobile-first voice recording design.
 
 ## Local Development Instructions
 
@@ -13,7 +19,7 @@ Monorepo for Voice Udhar - Shopkeeper Billing & Udhaar Tracker.
 ```bash
 cd backend
 npm install
-USE_MOCK_DB=true npm start
+USE_MOCK_DB=true USE_MOCK_GEMINI=true npm start
 ```
 The backend API will run on `http://localhost:5000` (or configured `PORT`).
 
