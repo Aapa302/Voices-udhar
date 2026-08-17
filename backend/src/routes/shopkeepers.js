@@ -1,11 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const shopkeeperController = require('../controllers/shopkeeperController');
+const apiKeyAuth = require('../middleware/auth');
 
-// POST /api/shopkeepers — create shopkeeper (Unprotected so shopkeeper can register)
+// All shopkeeper routes pass through apiKeyAuth (POST /api/shopkeepers is exempted inside middleware)
+router.use(apiKeyAuth);
+
+// POST /api/shopkeepers — create shopkeeper (exempted from API key requirement)
 router.post('/', shopkeeperController.createShopkeeper);
 
-// GET /api/shopkeepers/:id — get shopkeeper details
+// GET /api/shopkeepers/:id — get shopkeeper details (requires x-api-key)
 router.get('/:id', shopkeeperController.getShopkeeper);
 
 module.exports = router;

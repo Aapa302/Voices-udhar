@@ -2,8 +2,17 @@ const { db } = require('../config/firebase');
 
 /**
  * Middleware to check x-api-key header against shopkeepers collection in Firestore.
+ * Exempts POST /api/shopkeepers (public onboarding/registration endpoint).
  */
 const apiKeyAuth = async (req, res, next) => {
+  // Exempt POST /api/shopkeepers from x-api-key requirement
+  const fullPath = (req.originalUrl || (req.baseUrl + req.path)).split('?')[0].replace(/\/$/, '');
+  const isShopkeeperRegistration = req.method === 'POST' && fullPath === '/api/shopkeepers';
+
+  if (isShopkeeperRegistration) {
+    return next();
+  }
+
   const apiKey = req.headers['x-api-key'];
 
   if (!apiKey) {
