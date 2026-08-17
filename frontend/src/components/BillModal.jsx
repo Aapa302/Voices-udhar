@@ -1,5 +1,5 @@
 import React from 'react';
-import { Share2, X, Receipt, Store, User, Calendar, CheckCircle2, Sparkles } from 'lucide-react';
+import { Share2, X, Receipt, User, Calendar, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function BillModal({ billData, onClose }) {
@@ -48,22 +48,23 @@ export default function BillModal({ billData, onClose }) {
       >
         {/* Modal Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.25rem', fontWeight: '800', color: '#0F172A' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.25rem', fontWeight: '800', color: '#F8FAFC', fontFamily: "'Outfit', sans-serif" }}>
             <div style={{
               width: '38px',
               height: '38px',
               borderRadius: '10px',
-              background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
+              background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.3) 0%, rgba(192, 38, 211, 0.3) 100%)',
+              border: '1px solid rgba(240, 198, 116, 0.3)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}>
-              <Receipt size={22} color="#6D28D9" />
+              <Receipt size={22} color="#F0C674" />
             </div>
             <span>બીલ રેસિપ્ટ / Bill Preview</span>
           </div>
           <button className="btn-icon" onClick={onClose} aria-label="Close modal">
-            <X size={24} />
+            <X size={24} color="#94A3B8" />
           </button>
         </div>
 
@@ -71,31 +72,31 @@ export default function BillModal({ billData, onClose }) {
         <div className="bill-receipt-paper">
           <div className="receipt-shop-name">{shopName}</div>
           <div className="receipt-subtitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}>
-            <Sparkles size={14} color="#F59E0B" />
-            <span>કહ્યું તે જ સેવ થયું / Voice Bill</span>
+            <Sparkles size={14} color="#F0C674" fill="#F0C674" />
+            <span style={{ color: '#E9D5FF' }}>કહ્યું તે જ સેવ થયું / Voice Bill</span>
           </div>
 
           <div className="receipt-divider" />
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.95rem', color: '#334155' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.95rem', color: '#F8FAFC' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <User size={16} color="#6D28D9" />
+              <User size={16} color="#F0C674" />
               <strong>ગ્રાહક / Customer:</strong> {customerName}
             </div>
             {customerPhone && customerPhone !== '0000000000' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.875rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94A3B8', fontSize: '0.875rem' }}>
                 મોબાઇલ / Phone: {customerPhone}
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.875rem' }}>
-              <Calendar size={14} color="#64748B" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94A3B8', fontSize: '0.875rem' }}>
+              <Calendar size={14} color="#94A3B8" />
               તારીખ / Date: {date}
             </div>
           </div>
 
           <div className="receipt-divider" />
 
-          <div style={{ fontSize: '1rem', fontWeight: '700', color: '#0F172A', marginBottom: '0.5rem' }}>
+          <div style={{ fontSize: '1rem', fontWeight: '700', color: '#F0C674', marginBottom: '0.5rem' }}>
             વસ્તુઓ / Items:
           </div>
 
@@ -105,13 +106,13 @@ export default function BillModal({ billData, onClose }) {
                 const itemText = typeof item === 'object' ? `${item.name || item.item} - ₹${item.price || item.amount}` : item;
                 return (
                   <div key={idx} className="receipt-item-row">
-                    <span style={{ fontWeight: '500', color: '#334155' }}>{idx + 1}. {itemText}</span>
+                    <span style={{ fontWeight: '500', color: '#F8FAFC' }}>{idx + 1}. {itemText}</span>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div style={{ fontSize: '0.95rem', color: '#64748B', fontStyle: 'italic', fontWeight: '500' }}>
+            <div style={{ fontSize: '0.95rem', color: '#94A3B8', fontStyle: 'italic', fontWeight: '500' }}>
               રોકડ વેચાણ / Cash Sale
             </div>
           )}

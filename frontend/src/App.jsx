@@ -57,11 +57,11 @@ function AnimatedRoutes() {
 function PageWrapper({ children }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.22, ease: 'easeOut' }}
-      style={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%' }}
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      style={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', zIndex: 1 }}
     >
       {children}
     </motion.div>
@@ -88,37 +88,61 @@ export default function App() {
     setShopName(data.shopName || '');
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', gap: '1rem', backgroundColor: '#FAFAF9' }}>
-        <div style={{
-          width: '64px',
-          height: '64px',
-          borderRadius: '16px',
-          background: 'linear-gradient(135deg, #4C1D95 0%, #6D28D9 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 8px 20px rgba(76, 29, 149, 0.25)'
-        }}>
-          <Sparkles size={32} color="#F59E0B" />
-        </div>
-        <Loader2 className="animate-spin" size={32} color="#6D28D9" />
-        <p style={{ fontSize: '1.1rem', color: '#64748B', fontWeight: '600' }}>લોડ થઈ રહ્યું છે... / Loading...</p>
-      </div>
-    );
-  }
-
-  // Show onboarding if shopkeeperId is not found in localStorage
-  if (!shopkeeperId) {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
-  }
-
   return (
-    <BrowserRouter>
-      <Header shopName={shopName} />
-      <AnimatedRoutes />
-      <BottomNav />
-    </BrowserRouter>
+    <div style={{ position: 'relative', minHeight: '100vh', width: '100%', overflow: 'hidden' }}>
+      {/* Drifting Ambient Background Orbs */}
+      <motion.div
+        className="ambient-bg-orb orb-1"
+        animate={{
+          x: [0, 30, -20, 0],
+          y: [0, -30, 20, 0],
+        }}
+        transition={{ repeat: Infinity, duration: 18, ease: 'easeInOut' }}
+      />
+      <motion.div
+        className="ambient-bg-orb orb-2"
+        animate={{
+          x: [0, -40, 20, 0],
+          y: [0, 30, -30, 0],
+        }}
+        transition={{ repeat: Infinity, duration: 22, ease: 'easeInOut' }}
+      />
+      <motion.div
+        className="ambient-bg-orb orb-3"
+        animate={{
+          scale: [1, 1.25, 0.9, 1],
+          opacity: [0.15, 0.25, 0.1, 0.15],
+        }}
+        transition={{ repeat: Infinity, duration: 15, ease: 'easeInOut' }}
+      />
+
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', gap: '1rem', backgroundColor: '#0A0A0F', position: 'relative', zIndex: 2 }}>
+          <div style={{
+            width: '72px',
+            height: '72px',
+            borderRadius: '20px',
+            background: 'linear-gradient(135deg, #7C3AED 0%, #C026D3 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 12px 30px rgba(124, 58, 237, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+            border: '1px solid rgba(240, 198, 116, 0.3)'
+          }}>
+            <Sparkles size={36} color="#F0C674" />
+          </div>
+          <Loader2 className="animate-spin" size={32} color="#C026D3" />
+          <p style={{ fontSize: '1.1rem', color: '#94A3B8', fontWeight: '600' }}>લોડ થઈ રહ્યું છે... / Loading...</p>
+        </div>
+      ) : !shopkeeperId ? (
+        <Onboarding onComplete={handleOnboardingComplete} />
+      ) : (
+        <BrowserRouter>
+          <Header shopName={shopName} />
+          <AnimatedRoutes />
+          <BottomNav />
+        </BrowserRouter>
+      )}
+    </div>
   );
 }

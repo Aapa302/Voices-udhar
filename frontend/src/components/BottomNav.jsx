@@ -25,24 +25,28 @@ export default function BottomNav() {
             {({ isActive }) => (
               <>
                 <motion.div
-                  whileTap={{ scale: 0.85 }}
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', width: '100%' }}
+                  whileTap={{ scale: 0.88 }}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', width: '100%', zIndex: 2 }}
                 >
-                  <Icon className="nav-icon" size={22} color={isActive ? '#6D28D9' : '#64748B'} />
-                  <span style={{ color: isActive ? '#4C1D95' : '#64748B' }}>{item.label}</span>
+                  <Icon className="nav-icon" size={22} color={isActive ? '#F0C674' : '#64748B'} />
+                  <span style={{ color: isActive ? '#F0C674' : '#64748B', fontWeight: isActive ? '800' : '500' }}>
+                    {item.label}
+                  </span>
                 </motion.div>
+
                 {isActive && (
                   <motion.div
-                    layoutId="activeTabIndicator"
+                    layoutId="activeTabPill"
                     style={{
                       position: 'absolute',
-                      top: 0,
-                      width: '40px',
-                      height: '3px',
-                      borderRadius: '0 0 4px 4px',
-                      background: 'linear-gradient(90deg, #4C1D95, #F59E0B)',
+                      inset: '6px 8px',
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(192, 38, 211, 0.2) 100%)',
+                      border: '1px solid rgba(240, 198, 116, 0.25)',
+                      boxShadow: '0 0 15px rgba(124, 58, 237, 0.2)',
+                      zIndex: 1
                     }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                   />
                 )}
               </>

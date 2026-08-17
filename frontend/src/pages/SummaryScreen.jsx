@@ -133,10 +133,10 @@ export default function SummaryScreen() {
       {/* Title & Refresh */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0F172A', margin: 0, letterSpacing: '-0.02em' }}>
-            આજનું તારણ
+          <h2 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#F8FAFC', margin: 0, letterSpacing: '-0.02em', fontFamily: "'Outfit', sans-serif" }}>
+            આજનો ડેશબોર્ડ / Summary
           </h2>
-          <span style={{ fontSize: '0.875rem', color: '#64748B', fontWeight: '600' }}>Daily Summary Dashboard</span>
+          <span style={{ fontSize: '0.875rem', color: '#94A3B8', fontWeight: '600' }}>Daily Financial Summary</span>
         </div>
         <motion.button
           whileTap={{ scale: 0.92 }}
@@ -145,28 +145,28 @@ export default function SummaryScreen() {
           style={{
             padding: '0.65rem 1rem',
             borderRadius: 'var(--radius-md)',
-            border: '1.5px solid var(--border-color)',
-            backgroundColor: '#ffffff',
-            color: '#4C1D95',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            color: '#F0C674',
             display: 'flex',
             alignItems: 'center',
             gap: '0.4rem',
             cursor: 'pointer',
             fontSize: '0.9rem',
             fontWeight: '700',
-            boxShadow: 'var(--shadow-sm)'
+            backdropFilter: 'blur(8px)'
           }}
         >
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} color="#6D28D9" />
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} color="#F0C674" />
           <span>રીફ્રેશ</span>
         </motion.button>
       </div>
 
       {/* Loading State */}
       {loading && (
-        <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-          <RefreshCw className="animate-spin" size={40} color="#6D28D9" style={{ margin: '0 auto 1rem' }} />
-          <p style={{ color: '#64748B', fontSize: '1.1rem', margin: 0, fontWeight: '600' }}>
+        <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
+          <RefreshCw className="animate-spin" size={40} color="#C026D3" style={{ margin: '0 auto 1rem' }} />
+          <p style={{ color: '#94A3B8', fontSize: '1.1rem', margin: 0, fontWeight: '600' }}>
             તારણ લોડ થઈ રહ્યું છે... / Loading summary...
           </p>
         </div>
@@ -191,10 +191,10 @@ export default function SummaryScreen() {
               width: '100%',
               padding: '1.15rem',
               borderRadius: 'var(--radius-md)',
-              border: 'none',
+              border: '1px solid rgba(240, 198, 116, 0.3)',
               background: isSpeaking
-                ? 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)'
-                : 'linear-gradient(135deg, #4C1D95 0%, #6D28D9 100%)',
+                ? 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)'
+                : 'linear-gradient(135deg, #7C3AED 0%, #C026D3 100%)',
               color: '#ffffff',
               fontSize: '1.25rem',
               fontWeight: '800',
@@ -204,10 +204,11 @@ export default function SummaryScreen() {
               gap: '0.75rem',
               cursor: 'pointer',
               boxShadow: isSpeaking
-                ? '0 8px 20px rgba(239, 68, 68, 0.3)'
-                : '0 8px 20px rgba(76, 29, 149, 0.3)',
+                ? '0 8px 24px rgba(244, 63, 94, 0.4)'
+                : '0 8px 24px rgba(124, 58, 237, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
               marginBottom: '1.5rem',
-              transition: 'all 0.2s ease'
+              transition: 'all 0.2s ease',
+              fontFamily: "'Outfit', sans-serif"
             }}
           >
             {isSpeaking ? (
@@ -217,9 +218,9 @@ export default function SummaryScreen() {
               </>
             ) : (
               <>
-                <Volume2 size={28} color="#F59E0B" />
+                <Volume2 size={28} color="#F0C674" />
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  બોલકે સુણો / Read Aloud <Sparkles size={18} color="#F59E0B" />
+                  બોલકે સુણો / Read Aloud <Sparkles size={18} color="#F0C674" fill="#F0C674" />
                 </span>
               </>
             )}
@@ -230,20 +231,27 @@ export default function SummaryScreen() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              style={{
-                backgroundColor: '#ffffff',
-                border: '2px dashed var(--border-color)',
-                borderRadius: 'var(--radius-lg)',
-                padding: '2.5rem 1rem',
-                textAlign: 'center',
-                color: '#64748B'
-              }}
+              className="placeholder-card"
             >
-              <Receipt size={48} style={{ color: '#94A3B8', marginBottom: '0.75rem' }} />
-              <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 0.25rem 0', color: '#0F172A' }}>
+              <div style={{
+                width: '72px',
+                height: '72px',
+                background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(192, 38, 211, 0.25) 100%)',
+                color: '#F0C674',
+                borderRadius: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 8px 20px rgba(124, 58, 237, 0.2)',
+                border: '1px solid rgba(240, 198, 116, 0.3)',
+                marginBottom: '1rem'
+              }}>
+                <Receipt size={36} />
+              </div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 0.25rem 0', color: '#F8FAFC' }}>
                 આજે કોઈ ટ્રાન્ઝેક્શન નથી થયું
               </h3>
-              <p style={{ margin: 0, fontSize: '0.95rem', color: '#64748B', fontWeight: '500' }}>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#94A3B8', fontWeight: '500' }}>
                 Aaj koi transaction nahi hua
               </p>
             </motion.div>
@@ -255,26 +263,23 @@ export default function SummaryScreen() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.05 }}
+                className="glass-card"
                 style={{
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border-color)',
-                  borderLeft: '6px solid #6D28D9',
-                  borderRadius: 'var(--radius-md)',
+                  borderLeft: '5px solid #C026D3',
                   padding: '1.25rem',
-                  boxShadow: 'var(--shadow-sm)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}
               >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6D28D9', fontWeight: '800', marginBottom: '0.25rem' }}>
-                    <ShoppingBag size={20} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#E9D5FF', fontWeight: '800', marginBottom: '0.25rem' }}>
+                    <ShoppingBag size={20} color="#C026D3" />
                     <span>આજનું વેચાણ / Total Sale</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Aaj ka Total Sale</div>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', fontWeight: '500' }}>Aaj ka Total Sale</div>
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#0F172A' }}>
+                <div className="number-font gold-gradient-text" style={{ fontSize: '2rem', fontWeight: '900' }}>
                   ₹<AnimatedNumber value={summary?.totalSales || 0} />
                 </div>
               </motion.div>
@@ -284,13 +289,10 @@ export default function SummaryScreen() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.1 }}
+                className="glass-card"
                 style={{
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border-color)',
-                  borderLeft: '6px solid #F97316',
-                  borderRadius: 'var(--radius-md)',
+                  borderLeft: '5px solid #F97316',
                   padding: '1.25rem',
-                  boxShadow: 'var(--shadow-sm)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
@@ -301,9 +303,9 @@ export default function SummaryScreen() {
                     <ArrowUpRight size={20} />
                     <span>નવું ઉધાર / New Udhaar</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Naya Udhaar Given</div>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', fontWeight: '500' }}>Naya Udhaar Given</div>
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#F97316' }}>
+                <div className="number-font" style={{ fontSize: '2rem', fontWeight: '900', color: '#F97316' }}>
                   ₹<AnimatedNumber value={summary?.totalNewUdhaar || 0} />
                 </div>
               </motion.div>
@@ -313,13 +315,10 @@ export default function SummaryScreen() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.15 }}
+                className="glass-card"
                 style={{
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border-color)',
-                  borderLeft: '6px solid #10B981',
-                  borderRadius: 'var(--radius-md)',
+                  borderLeft: '5px solid #10B981',
                   padding: '1.25rem',
-                  boxShadow: 'var(--shadow-sm)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
@@ -330,9 +329,9 @@ export default function SummaryScreen() {
                     <ArrowDownLeft size={20} />
                     <span>ઉધાર વસૂલ / Udhaar Vasool</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Credit Collected</div>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', fontWeight: '500' }}>Credit Collected</div>
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#10B981' }}>
+                <div className="number-font" style={{ fontSize: '2rem', fontWeight: '900', color: '#10B981' }}>
                   ₹<AnimatedNumber value={summary?.totalUdhaarCollected || 0} />
                 </div>
               </motion.div>
@@ -342,26 +341,23 @@ export default function SummaryScreen() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.2 }}
+                className="glass-card"
                 style={{
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border-color)',
-                  borderLeft: '6px solid #F59E0B',
-                  borderRadius: 'var(--radius-md)',
+                  borderLeft: '5px solid #F0C674',
                   padding: '1.25rem',
-                  boxShadow: 'var(--shadow-sm)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}
               >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#D97706', fontWeight: '800', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#F0C674', fontWeight: '800', marginBottom: '0.25rem' }}>
                     <Receipt size={20} />
                     <span>કુલ ટ્રાન્ઝેક્શન / Total Transactions</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Kul Transactions</div>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', fontWeight: '500' }}>Kul Transactions</div>
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#0F172A' }}>
+                <div className="number-font" style={{ fontSize: '2rem', fontWeight: '900', color: '#F8FAFC' }}>
                   <AnimatedNumber value={summary?.transactionCount || 0} />
                 </div>
               </motion.div>
