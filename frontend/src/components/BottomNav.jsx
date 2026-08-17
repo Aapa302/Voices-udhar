@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Users } from 'lucide-react';
+import { Home, Users, PieChart } from 'lucide-react';
 
 export default function BottomNav() {
   return (
@@ -20,6 +20,14 @@ export default function BottomNav() {
       >
         <Users className="nav-icon" />
         <span>ગ્રાહકો / Customers</span>
+      </NavLink>
+
+      <NavLink
+        to="/summary"
+        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+      >
+        <PieChart className="nav-icon" />
+        <span>તારણ / Summary</span>
       </NavLink>
     </nav>
   );

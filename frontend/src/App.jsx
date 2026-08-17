@@ -6,6 +6,7 @@ import Onboarding from './components/Onboarding';
 import HomeScreen from './pages/HomeScreen';
 import CustomersScreen from './pages/CustomersScreen';
 import CustomerHistoryScreen from './pages/CustomerHistoryScreen';
+import SummaryScreen from './pages/SummaryScreen';
 
 export default function App() {
   const [shopkeeperId, setShopkeeperId] = useState(null);
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/" element={<HomeScreen />} />
         <Route path="/customers" element={<CustomersScreen />} />
         <Route path="/customers/:customerId" element={<CustomerHistoryScreen />} />
+        <Route path="/summary" element={<SummaryScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <BottomNav />
