@@ -42,7 +42,7 @@ describe('Voice Udhar API Integration Tests', () => {
       apiKey = res.body.data.apiKey;
     });
 
-    it('GET /api/shopkeepers/:id should retrieve shopkeeper details', async () => {
+    it('GET /api/shopkeepers/:id should require x-api-key header and retrieve shopkeeper details', async () => {
       const createRes = await request(app)
         .post('/api/shopkeepers')
         .send({
@@ -51,14 +51,32 @@ describe('Voice Udhar API Integration Tests', () => {
         });
 
       const id = createRes.body.data.shopkeeperId;
+      const key = createRes.body.data.apiKey;
 
-      const getRes = await request(app).get(`/api/shopkeepers/${id}`);
+      // Without x-api-key should fail with 401
+      const unauthorizedRes = await request(app).get(`/api/shopkeepers/${id}`);
+      expect(unauthorizedRes.status).toBe(401);
+
+      // With x-api-key should succeed
+      const getRes = await request(app)
+        .get(`/api/shopkeepers/${id}`)
+        .set('x-api-key', key);
       expect(getRes.status).toBe(200);
       expect(getRes.body.data.shopName).toBe('Gupta Kirana');
     });
 
-    it('GET /api/shopkeepers/:id should return 404 for non-existent shopkeeper', async () => {
-      const res = await request(app).get('/api/shopkeepers/non_existent_id');
+    it('GET /api/shopkeepers/:id should return 404 for non-existent shopkeeper with valid key', async () => {
+      const createRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Temp Shop',
+          phone: '1234567890',
+        });
+      const key = createRes.body.data.apiKey;
+
+      const res = await request(app)
+        .get('/api/shopkeepers/non_existent_id')
+        .set('x-api-key', key);
       expect(res.status).toBe(404);
     });
   });
