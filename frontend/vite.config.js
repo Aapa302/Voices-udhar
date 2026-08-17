@@ -39,5 +39,9 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  preview: {
+    host: true,
+    allowedHosts: ['voices-udhar-frontend.onrender.com']
   }
 })
