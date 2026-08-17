@@ -43,7 +43,6 @@ describe('Voice Udhar API Integration Tests', () => {
     });
 
     it('GET /api/shopkeepers/:id should retrieve shopkeeper details', async () => {
-      // Create first
       const createRes = await request(app)
         .post('/api/shopkeepers')
         .send({
@@ -182,7 +181,6 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(res.body.data.type).toBe('udhaar_add');
       expect(res.body.data.amount).toBe(50);
 
-      // Verify customer's updated totalUdhaar (100 + 50 = 150)
       const custRes = await request(app)
         .get(`/api/customers/${shopkeeperId}`)
         .set('x-api-key', apiKey);
@@ -205,7 +203,6 @@ describe('Voice Udhar API Integration Tests', () => {
 
       expect(res.status).toBe(201);
 
-      // Verify customer's updated totalUdhaar (100 - 40 = 60)
       const custRes = await request(app)
         .get(`/api/customers/${shopkeeperId}`)
         .set('x-api-key', apiKey);
@@ -242,6 +239,138 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBe(2);
+    });
+  });
+
+  describe('Voice Processing API', () => {
+    beforeEach(async () => {
+      const skRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Test Shop',
+          phone: '1112223333',
+        });
+      shopkeeperId = skRes.body.data.shopkeeperId;
+      apiKey = skRes.body.data.apiKey;
+    });
+
+    it('POST /api/voice/process should return 400 if audio data is missing', async () => {
+      const res = await request(app)
+        .post('/api/voice/process')
+        .set('x-api-key', apiKey)
+        .send({});
+
+      expect(res.status).toBe(400);
+    });
+
+    it('POST /api/voice/process should return structured JSON for base64 audio', async () => {
+      const dummyAudioBase64 = Buffer.from('mock audio').toString('base64');
+
+      const res = await request(app)
+        .post('/api/voice/process')
+        .set('x-api-key', apiKey)
+        .send({
+          audioBase64: dummyAudioBase64,
+          mimeType: 'audio/mp3',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('transcription_gujarati');
+      expect(res.body).toHaveProperty('translation_english');
+      expect(res.body).toHaveProperty('intent');
+      expect(res.body).toHaveProperty('customer_name');
+      expect(res.body).toHaveProperty('amount');
+      expect(res.body).toHaveProperty('items');
+      expect(res.body).toHaveProperty('confidence');
+    });
+  });
+
+  describe('Bill Generation API', () => {
+    beforeEach(async () => {
+      const skRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Ambika Provision',
+          phone: '9876543210',
+        });
+      shopkeeperId = skRes.body.data.shopkeeperId;
+      apiKey = skRes.body.data.apiKey;
+    });
+
+    it('POST /api/bill/generate should generate PDF base64 and WhatsApp share link', async () => {
+      const res = await request(app)
+        .post('/api/bill/generate')
+        .set('x-api-key', apiKey)
+        .send({
+          shopkeeperId,
+          customerName: 'Patel Bhai',
+          customerPhone: '9876543210',
+          items: ['Rice 5kg', 'Oil 1L'],
+          totalAmount: 450,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('pdfBase64');
+      expect(res.body).toHaveProperty('whatsappShareLink');
+      expect(res.body.whatsappShareLink).toContain('https://wa.me/');
+      expect(res.body.shopName).toBe('Ambika Provision');
+    });
+  });
+
+  describe('Daily Summary API', () => {
+    beforeEach(async () => {
+      const skRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Test Shop',
+          phone: '1112223333',
+        });
+      shopkeeperId = skRes.body.data.shopkeeperId;
+      apiKey = skRes.body.data.apiKey;
+
+      const custRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          shopkeeperId,
+          name: 'Ramesh Kumar',
+          phone: '9988776655',
+        });
+      customerId = custRes.body.data.customerId;
+    });
+
+    it('GET /api/summary/daily/:shopkeeperId should return clean summary metrics for today', async () => {
+      const now = new Date().toISOString();
+
+      // Log sale
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({ shopkeeperId, customerId, type: 'sale', amount: 300, timestamp: now });
+
+      // Log udhaar_add
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({ shopkeeperId, customerId, type: 'udhaar_add', amount: 150, timestamp: now });
+
+      // Log udhaar_paid
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({ shopkeeperId, customerId, type: 'udhaar_paid', amount: 50, timestamp: now });
+
+      const res = await request(app)
+        .get(`/api/summary/daily/${shopkeeperId}`)
+        .set('x-api-key', apiKey);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        totalSales: 300,
+        totalNewUdhaar: 150,
+        totalUdhaarCollected: 50,
+        transactionCount: 3,
+      });
     });
   });
 });

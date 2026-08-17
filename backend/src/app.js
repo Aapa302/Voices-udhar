@@ -6,12 +6,15 @@ const helmet = require('helmet');
 const shopkeeperRoutes = require('./routes/shopkeepers');
 const customerRoutes = require('./routes/customers');
 const transactionRoutes = require('./routes/transactions');
+const voiceRoutes = require('./routes/voice');
+const billRoutes = require('./routes/bill');
+const summaryRoutes = require('./routes/summary');
 
 const app = express();
 
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -22,6 +25,9 @@ app.get('/health', (req, res) => {
 app.use('/api/shopkeepers', shopkeeperRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/voice', voiceRoutes);
+app.use('/api/bill', billRoutes);
+app.use('/api/summary', summaryRoutes);
 
 // 404 handler
 app.use((req, res) => {
