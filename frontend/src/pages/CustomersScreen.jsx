@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RotateCcw, User, Phone, ChevronRight, Loader2, Users } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { getCustomers } from '../api/customers';
 
 export default function CustomersScreen() {
@@ -68,21 +69,23 @@ export default function CustomersScreen() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <button
+        <motion.button
+          whileTap={{ scale: 0.92 }}
           className="btn-icon"
           style={{
             border: '2px solid var(--border-color)',
             height: '48px',
             width: '48px',
-            borderRadius: '0.75rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: '#ffffff'
           }}
           onClick={() => fetchCustomersList(true)}
           disabled={loading || refreshing}
           title="Refresh List"
           aria-label="Refresh Customer List"
         >
-          <RotateCcw className={refreshing ? 'animate-spin' : ''} size={22} />
-        </button>
+          <RotateCcw className={refreshing ? 'animate-spin' : ''} size={22} color="#6D28D9" />
+        </motion.button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -90,25 +93,26 @@ export default function CustomersScreen() {
       {/* Loading State */}
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 0' }}>
-          <Loader2 className="animate-spin" size={40} color="#2563eb" />
-          <p style={{ marginTop: '1rem', color: '#64748b', fontSize: '1.1rem' }}>
+          <Loader2 className="animate-spin" size={44} color="#6D28D9" />
+          <p style={{ marginTop: '1rem', color: '#64748B', fontSize: '1.1rem', fontWeight: '600' }}>
             ગ્રાહકોની યાદી લોડ થઈ રહી છે... / Loading customers...
           </p>
         </div>
       ) : filteredCustomers.length === 0 ? (
         /* Empty State */
-        <div className="placeholder-card">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="placeholder-card">
           <div style={{
-            width: '64px',
-            height: '64px',
-            backgroundColor: '#eff6ff',
-            color: '#2563eb',
-            borderRadius: '50%',
+            width: '72px',
+            height: '72px',
+            background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
+            color: '#6D28D9',
+            borderRadius: '20px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            boxShadow: '0 8px 20px rgba(109, 40, 217, 0.12)'
           }}>
-            <Users size={32} />
+            <Users size={36} />
           </div>
           <h2 className="placeholder-title">
             {searchQuery ? 'કોઈ પરિણામ મળ્યું નથી / No Results Found' : 'હજી સુધી કોઈ ગ્રાહક નથી / Abhi koi customer nahi hai'}
@@ -118,31 +122,35 @@ export default function CustomersScreen() {
               ? 'અન્ય નામથી શોધો. / Try searching with another name.'
               : 'હોમ સ્ક્રીન પર બોલીને નવો ઉધાર અથવા જમા સેવ કરો. / Record new transactions on Home screen.'}
           </p>
-        </div>
+        </motion.div>
       ) : (
         /* Customer List */
         <div className="customer-list">
-          {filteredCustomers.map((customer) => {
+          {filteredCustomers.map((customer, index) => {
             const udhaarVal = Number(customer.totalUdhaar) || 0;
             const hasUdhaar = udhaarVal > 0;
 
             return (
-              <div
+              <motion.div
                 key={customer.customerId}
-                className="customer-card"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: index * 0.04 }}
+                whileTap={{ scale: 0.98 }}
+                className={`customer-card ${hasUdhaar ? 'high-udhaar' : 'zero-udhaar'}`}
                 onClick={() => navigate(`/customers/${customer.customerId}`, { state: { customer } })}
               >
                 <div className="customer-info">
                   <div className="customer-name">{customer.name}</div>
                   {customer.phone && customer.phone !== '0000000000' && (
                     <div className="customer-phone">
-                      <Phone size={14} />
+                      <Phone size={14} color="#64748B" />
                       {customer.phone}
                     </div>
                   )}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
                   <div className="udhaar-amount-badge">
                     <div className={`udhaar-amount-val ${hasUdhaar ? 'has-udhaar' : 'zero-udhaar'}`}>
                       ₹{udhaarVal}
@@ -151,9 +159,9 @@ export default function CustomersScreen() {
                       {hasUdhaar ? 'બાકી ઉધાર' : 'જમા ચૂકવ્યું'}
                     </div>
                   </div>
-                  <ChevronRight size={22} color="#94a3b8" />
+                  <ChevronRight size={22} color="#94A3B8" />
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>

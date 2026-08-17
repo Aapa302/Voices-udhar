@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle } from 'lucide-react';
+import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { processVoiceAudio } from '../api/voice';
 import { getCustomers, createCustomer } from '../api/customers';
 import { logTransaction } from '../api/transactions';
@@ -180,7 +181,7 @@ export default function HomeScreen() {
     }
   };
 
-  // 4. Save Transaction (either from confirmation direct or after edit)
+  // 4. Save Transaction
   const executeSave = async (finalName, finalAmount, finalTxType) => {
     setScreenState(SCREEN_STATE.SAVING);
     setErrorMessage('');
@@ -248,7 +249,6 @@ export default function HomeScreen() {
         setShowBillModal(true);
       } catch (billErr) {
         console.error('Bill generation error:', billErr);
-        // Even if bill generation API fails, still show transaction success
       }
 
       setScreenState(SCREEN_STATE.SUCCESS);
@@ -298,14 +298,14 @@ export default function HomeScreen() {
 
       {/* 1. PERMISSION DENIED STATE */}
       {screenState === SCREEN_STATE.PERMISSION_DENIED && (
-        <div className="confirmation-card" style={{ textCenter: 'center', borderColor: '#fecaca' }}>
-          <div style={{ color: '#dc2626', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
-            <AlertCircle size={48} />
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="confirmation-card" style={{ textCenter: 'center', borderColor: '#fca5a5' }}>
+          <div style={{ color: '#ef4444', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
+            <AlertCircle size={52} />
           </div>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: '#0f172a', textAlign: 'center' }}>
+          <h2 style={{ fontSize: '1.35rem', marginBottom: '0.5rem', color: '#0F172A', textAlign: 'center' }}>
             માઇક્રોફોન મંજૂરી નકારી / Mic Permission Denied
           </h2>
-          <p style={{ color: '#64748b', fontSize: '1rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+          <p style={{ color: '#64748B', fontSize: '1rem', marginBottom: '1.5rem', textAlign: 'center' }}>
             અવાજ રેકોર્ડ કરવા માટે બ્રાઉઝર સેટિંગ્સમાંથી માઇક્રોફોન પરમિશન આપો.
             <br />
             Please allow microphone access in your browser settings to record voice.
@@ -314,12 +314,12 @@ export default function HomeScreen() {
             <RotateCcw size={20} />
             ફરી પ્રયાસ કરો / Try Again
           </button>
-        </div>
+        </motion.div>
       )}
 
       {/* 2. ERROR STATE ("Sunai nahi diya, phir se bolo") */}
       {screenState === SCREEN_STATE.ERROR && (
-        <div className="confirmation-card" style={{ textCenter: 'center' }}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card" style={{ textCenter: 'center' }}>
           <div className="error-banner">
             {errorMessage || 'સંભળાયું નથી, ફરી બોલો / Sunai nahi diya, phir se bolo'}
           </div>
@@ -327,29 +327,62 @@ export default function HomeScreen() {
             <RotateCcw size={22} />
             ફરી બોલો / Try Again
           </button>
-        </div>
+        </motion.div>
       )}
 
       {/* 3. IDLE or RECORDING STATE */}
       {(screenState === SCREEN_STATE.IDLE || screenState === SCREEN_STATE.RECORDING) && (
         <div className="mic-container">
-          <button
-            className={`mic-button ${screenState === SCREEN_STATE.RECORDING ? 'recording' : ''}`}
-            onClick={screenState === SCREEN_STATE.RECORDING ? stopRecording : startRecording}
-            aria-label={screenState === SCREEN_STATE.RECORDING ? 'Stop recording' : 'Start recording'}
-          >
-            {screenState === SCREEN_STATE.RECORDING ? (
-              <Square size={52} fill="currentColor" />
-            ) : (
-              <Mic size={56} />
+          <div className="mic-hero-wrapper">
+            {screenState === SCREEN_STATE.RECORDING && (
+              <>
+                <motion.div
+                  className="mic-pulse-ring"
+                  animate={{ scale: [1, 1.45, 1], opacity: [0.7, 0, 0.7] }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+                  style={{ background: 'radial-gradient(circle, rgba(239, 68, 68, 0.4) 0%, rgba(239, 68, 68, 0) 70%)' }}
+                />
+                <motion.div
+                  className="mic-pulse-ring"
+                  animate={{ scale: [1, 1.25, 1], opacity: [0.9, 0.2, 0.9] }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut', delay: 0.3 }}
+                  style={{ background: 'radial-gradient(circle, rgba(239, 68, 68, 0.5) 0%, rgba(239, 68, 68, 0) 70%)' }}
+                />
+              </>
             )}
-          </button>
 
-          <div className="mic-status-label">
+            {screenState === SCREEN_STATE.IDLE && (
+              <motion.div
+                className="mic-pulse-ring"
+                animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0.15, 0.5] }}
+                transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
+              />
+            )}
+
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              whileHover={{ scale: 1.04 }}
+              className={`mic-button ${screenState === SCREEN_STATE.RECORDING ? 'recording' : ''}`}
+              onClick={screenState === SCREEN_STATE.RECORDING ? stopRecording : startRecording}
+              aria-label={screenState === SCREEN_STATE.RECORDING ? 'Stop recording' : 'Start recording'}
+            >
+              {screenState === SCREEN_STATE.RECORDING ? (
+                <Square size={52} fill="currentColor" />
+              ) : (
+                <Mic size={60} />
+              )}
+            </motion.button>
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mic-status-label"
+          >
             {screenState === SCREEN_STATE.RECORDING
               ? 'રેકોર્ડિંગ ચાલુ છે... (Recording...)'
               : 'બોલવા માટે માઇક પર દબાવો'}
-          </div>
+          </motion.div>
           <div className="mic-status-sub">
             {screenState === SCREEN_STATE.RECORDING
               ? 'બંધ કરવા ફરી દબાવો (Tap again to stop)'
@@ -361,19 +394,24 @@ export default function HomeScreen() {
       {/* 4. PROCESSING STATE ("Samajh raha hu...") */}
       {screenState === SCREEN_STATE.PROCESSING && (
         <div className="mic-container">
-          <div style={{
-            width: '100px',
-            height: '100px',
-            borderRadius: '50%',
-            backgroundColor: '#eff6ff',
-            color: '#2563eb',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: '1rem'
-          }}>
-            <Loader2 className="animate-spin" size={48} />
-          </div>
+          <motion.div
+            animate={{ scale: [1, 1.08, 1] }}
+            transition={{ repeat: Infinity, duration: 1.2 }}
+            style={{
+              width: '110px',
+              height: '110px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
+              color: '#6D28D9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '1rem',
+              boxShadow: '0 8px 20px rgba(109, 40, 217, 0.15)'
+            }}
+          >
+            <Loader2 className="animate-spin" size={52} />
+          </motion.div>
           <div className="mic-status-label">સમજી રહ્યા છીએ...</div>
           <div className="mic-status-sub">Samajh raha hu...</div>
         </div>
@@ -381,7 +419,12 @@ export default function HomeScreen() {
 
       {/* 5. CONFIRMATION CARD STATE */}
       {screenState === SCREEN_STATE.CONFIRMATION && parsedData && (
-        <div className="confirmation-card">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+          className="confirmation-card"
+        >
           <div className="confirmation-header">
             મેં સમજ્યું / Maine samjha:
           </div>
@@ -396,29 +439,29 @@ export default function HomeScreen() {
               </span>
             </div>
             {parsedData.transcription && (
-              <div style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#64748b', fontStyle: 'italic' }}>
+              <div style={{ marginTop: '0.85rem', fontSize: '0.9rem', color: '#64748B', fontStyle: 'italic', background: '#ffffff', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed #E7E5E4' }}>
                 "{parsedData.transcription}"
               </div>
             )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <button className="btn-success" onClick={handleConfirmDirect}>
+            <motion.button whileTap={{ scale: 0.98 }} className="btn-success" onClick={handleConfirmDirect}>
               <CheckCircle2 size={24} />
               સાચું છે / Sahi Hai (Confirm)
-            </button>
-            <button className="btn-secondary" onClick={() => setScreenState(SCREEN_STATE.EDITING)}>
+            </motion.button>
+            <motion.button whileTap={{ scale: 0.98 }} className="btn-secondary" onClick={() => setScreenState(SCREEN_STATE.EDITING)}>
               <Edit2 size={20} />
               સુધારો / Sudharo (Edit)
-            </button>
+            </motion.button>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* 6. EDITING STATE */}
       {screenState === SCREEN_STATE.EDITING && (
-        <div className="confirmation-card">
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: '#0f172a', textAlign: 'center' }}>
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card">
+          <h2 style={{ fontSize: '1.3rem', marginBottom: '1.25rem', color: '#0F172A', textAlign: 'center' }}>
             વિગતો સુધારો / Edit Details
           </h2>
 
@@ -489,13 +532,13 @@ export default function HomeScreen() {
               </button>
             </div>
           </form>
-        </div>
+        </motion.div>
       )}
 
       {/* 7. SAVING STATE */}
       {screenState === SCREEN_STATE.SAVING && (
         <div className="mic-container">
-          <Loader2 className="animate-spin" size={48} color="#2563eb" />
+          <Loader2 className="animate-spin" size={52} color="#6D28D9" />
           <div className="mic-status-label" style={{ marginTop: '1rem' }}>
             સેવ થઈ રહ્યું છે...
           </div>
@@ -505,17 +548,38 @@ export default function HomeScreen() {
 
       {/* 8. SUCCESS STATE ("Save ho gaya!") */}
       {screenState === SCREEN_STATE.SUCCESS && (
-        <div className="mic-container">
-          <div style={{ color: '#16a34a', marginBottom: '1rem' }}>
-            <CheckCircle2 size={72} />
-          </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          className="mic-container"
+        >
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', delay: 0.1, stiffness: 500, damping: 20 }}
+            style={{
+              width: '80px',
+              height: '80px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '1rem',
+              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.3)'
+            }}
+          >
+            <Check size={48} strokeWidth={3} />
+          </motion.div>
           <div className="success-banner" style={{ width: '100%' }}>
             Save ho gaya! / સેવ થઈ ગયું!
           </div>
-          <p style={{ color: '#64748b', fontSize: '1rem', textAlign: 'center' }}>
+          <p style={{ color: '#64748B', fontSize: '1rem', textAlign: 'center', fontWeight: '500' }}>
             ટ્રાન્ઝેક્શન સફળતાપૂર્વક ઉમેરાઈ ગયું છે.
           </p>
-        </div>
+        </motion.div>
       )}
     </div>
   );

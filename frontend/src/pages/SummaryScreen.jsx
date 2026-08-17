@@ -1,6 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getDailySummaryApi } from '../api/summary';
-import { Volume2, VolumeX, RefreshCw, ShoppingBag, ArrowUpRight, ArrowDownLeft, Receipt, AlertCircle } from 'lucide-react';
+import { Volume2, VolumeX, RefreshCw, ShoppingBag, ArrowUpRight, ArrowDownLeft, Receipt, AlertCircle, Sparkles } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+function AnimatedNumber({ value }) {
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    let start = 0;
+    const end = Number(value) || 0;
+    if (start === end) {
+      setDisplayValue(end);
+      return;
+    }
+
+    const duration = 800; // ms
+    const steps = 30;
+    const stepTime = duration / steps;
+    const increment = (end - start) / steps;
+    let currentStep = 0;
+
+    const timer = setInterval(() => {
+      currentStep++;
+      if (currentStep >= steps) {
+        setDisplayValue(end);
+        clearInterval(timer);
+      } else {
+        setDisplayValue(Math.floor(start + increment * currentStep));
+      }
+    }, stepTime);
+
+    return () => clearInterval(timer);
+  }, [value]);
+
+  return <span>{displayValue.toLocaleString('en-IN')}</span>;
+}
 
 export default function SummaryScreen() {
   const [summary, setSummary] = useState(null);
@@ -95,42 +129,44 @@ export default function SummaryScreen() {
     summary.transactionCount === 0;
 
   return (
-    <div style={{ padding: '1.25rem', paddingBottom: '6rem', maxWidth: '500px', margin: '0 auto' }}>
+    <div className="main-content" style={{ maxWidth: '520px', margin: '0 auto', width: '100%' }}>
       {/* Title & Refresh */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1e293b', margin: 0 }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0F172A', margin: 0, letterSpacing: '-0.02em' }}>
             આજનું તારણ
           </h2>
-          <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Daily Summary</span>
+          <span style={{ fontSize: '0.875rem', color: '#64748B', fontWeight: '600' }}>Daily Summary Dashboard</span>
         </div>
-        <button
+        <motion.button
+          whileTap={{ scale: 0.92 }}
           onClick={fetchSummary}
           disabled={loading}
           style={{
-            padding: '0.6rem 0.9rem',
-            borderRadius: '0.5rem',
-            border: '1px solid #cbd5e1',
+            padding: '0.65rem 1rem',
+            borderRadius: 'var(--radius-md)',
+            border: '1.5px solid var(--border-color)',
             backgroundColor: '#ffffff',
-            color: '#334155',
+            color: '#4C1D95',
             display: 'flex',
             alignItems: 'center',
             gap: '0.4rem',
             cursor: 'pointer',
             fontSize: '0.9rem',
-            fontWeight: '600'
+            fontWeight: '700',
+            boxShadow: 'var(--shadow-sm)'
           }}
         >
-          <RefreshCw size={18} className={loading ? 'spin' : ''} />
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} color="#6D28D9" />
           <span>રીફ્રેશ</span>
-        </button>
+        </motion.button>
       </div>
 
       {/* Loading State */}
       {loading && (
         <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-          <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
-          <p style={{ color: '#64748b', fontSize: '1.1rem', margin: 0 }}>
+          <RefreshCw className="animate-spin" size={40} color="#6D28D9" style={{ margin: '0 auto 1rem' }} />
+          <p style={{ color: '#64748B', fontSize: '1.1rem', margin: 0, fontWeight: '600' }}>
             તારણ લોડ થઈ રહ્યું છે... / Loading summary...
           </p>
         </div>
@@ -138,15 +174,7 @@ export default function SummaryScreen() {
 
       {/* Error State */}
       {error && !loading && (
-        <div style={{
-          backgroundColor: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: '0.75rem',
-          padding: '1.25rem',
-          textAlign: 'center',
-          color: '#991b1b',
-          marginBottom: '1rem'
-        }}>
+        <div className="error-banner">
           <AlertCircle size={32} style={{ marginBottom: '0.5rem' }} />
           <p style={{ margin: 0, fontWeight: 'bold' }}>{error}</p>
         </div>
@@ -156,23 +184,28 @@ export default function SummaryScreen() {
       {!loading && !error && (
         <>
           {/* Read Aloud Button */}
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={handleReadAloud}
             style={{
               width: '100%',
-              padding: '1.1rem',
-              borderRadius: '1rem',
+              padding: '1.15rem',
+              borderRadius: 'var(--radius-md)',
               border: 'none',
-              backgroundColor: isSpeaking ? '#dc2626' : '#2563eb',
+              background: isSpeaking
+                ? 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)'
+                : 'linear-gradient(135deg, #4C1D95 0%, #6D28D9 100%)',
               color: '#ffffff',
               fontSize: '1.25rem',
-              fontWeight: 'bold',
+              fontWeight: '800',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.75rem',
               cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+              boxShadow: isSpeaking
+                ? '0 8px 20px rgba(239, 68, 68, 0.3)'
+                : '0 8px 20px rgba(76, 29, 149, 0.3)',
               marginBottom: '1.5rem',
               transition: 'all 0.2s ease'
             }}
@@ -184,128 +217,154 @@ export default function SummaryScreen() {
               </>
             ) : (
               <>
-                <Volume2 size={28} />
-                <span>બોલકે સુણો / Read Aloud</span>
+                <Volume2 size={28} color="#F59E0B" />
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  બોલકે સુણો / Read Aloud <Sparkles size={18} color="#F59E0B" />
+                </span>
               </>
             )}
-          </button>
+          </motion.button>
 
           {/* Empty State */}
           {isAllZero ? (
-            <div style={{
-              backgroundColor: '#f8fafc',
-              border: '2px dashed #cbd5e1',
-              borderRadius: '1rem',
-              padding: '2.5rem 1rem',
-              textAlign: 'center',
-              color: '#64748b'
-            }}>
-              <Receipt size={48} style={{ color: '#94a3b8', marginBottom: '0.75rem' }} />
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 0.25rem 0', color: '#334155' }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              style={{
+                backgroundColor: '#ffffff',
+                border: '2px dashed var(--border-color)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '2.5rem 1rem',
+                textAlign: 'center',
+                color: '#64748B'
+              }}
+            >
+              <Receipt size={48} style={{ color: '#94A3B8', marginBottom: '0.75rem' }} />
+              <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 0.25rem 0', color: '#0F172A' }}>
                 આજે કોઈ ટ્રાન્ઝેક્શન નથી થયું
               </h3>
-              <p style={{ margin: 0, fontSize: '1rem', color: '#64748b' }}>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#64748B', fontWeight: '500' }}>
                 Aaj koi transaction nahi hua
               </p>
-            </div>
+            </motion.div>
           ) : (
             /* Summary Cards Grid */
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
               {/* Total Sales */}
-              <div style={{
-                backgroundColor: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderLeft: '6px solid #2563eb',
-                borderRadius: '0.75rem',
-                padding: '1.25rem',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.05 }}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border-color)',
+                  borderLeft: '6px solid #6D28D9',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem',
+                  boxShadow: 'var(--shadow-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#2563eb', fontWeight: 'bold', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6D28D9', fontWeight: '800', marginBottom: '0.25rem' }}>
                     <ShoppingBag size={20} />
                     <span>આજનું વેચાણ / Total Sale</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Aaj ka Total Sale</div>
+                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Aaj ka Total Sale</div>
                 </div>
-                <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: '#1e293b' }}>
-                  ₹{summary?.totalSales || 0}
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#0F172A' }}>
+                  ₹<AnimatedNumber value={summary?.totalSales || 0} />
                 </div>
-              </div>
+              </motion.div>
 
               {/* New Udhaar */}
-              <div style={{
-                backgroundColor: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderLeft: '6px solid #dc2626',
-                borderRadius: '0.75rem',
-                padding: '1.25rem',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.1 }}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border-color)',
+                  borderLeft: '6px solid #F97316',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem',
+                  boxShadow: 'var(--shadow-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 'bold', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#F97316', fontWeight: '800', marginBottom: '0.25rem' }}>
                     <ArrowUpRight size={20} />
                     <span>નવું ઉધાર / New Udhaar</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Naya Udhaar Given</div>
+                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Naya Udhaar Given</div>
                 </div>
-                <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: '#dc2626' }}>
-                  ₹{summary?.totalNewUdhaar || 0}
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#F97316' }}>
+                  ₹<AnimatedNumber value={summary?.totalNewUdhaar || 0} />
                 </div>
-              </div>
+              </motion.div>
 
               {/* Udhaar Collected */}
-              <div style={{
-                backgroundColor: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderLeft: '6px solid #059669',
-                borderRadius: '0.75rem',
-                padding: '1.25rem',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.15 }}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border-color)',
+                  borderLeft: '6px solid #10B981',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem',
+                  boxShadow: 'var(--shadow-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#059669', fontWeight: 'bold', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10B981', fontWeight: '800', marginBottom: '0.25rem' }}>
                     <ArrowDownLeft size={20} />
                     <span>ઉધાર વસૂલ / Udhaar Vasool</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Credit Collected</div>
+                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Credit Collected</div>
                 </div>
-                <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: '#059669' }}>
-                  ₹{summary?.totalUdhaarCollected || 0}
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#10B981' }}>
+                  ₹<AnimatedNumber value={summary?.totalUdhaarCollected || 0} />
                 </div>
-              </div>
+              </motion.div>
 
               {/* Total Transactions */}
-              <div style={{
-                backgroundColor: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderLeft: '6px solid #6366f1',
-                borderRadius: '0.75rem',
-                padding: '1.25rem',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.2 }}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border-color)',
+                  borderLeft: '6px solid #F59E0B',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem',
+                  boxShadow: 'var(--shadow-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6366f1', fontWeight: 'bold', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#D97706', fontWeight: '800', marginBottom: '0.25rem' }}>
                     <Receipt size={20} />
                     <span>કુલ ટ્રાન્ઝેક્શન / Total Transactions</span>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Kul Transactions</div>
+                  <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '500' }}>Kul Transactions</div>
                 </div>
-                <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: '#1e293b' }}>
-                  {summary?.transactionCount || 0}
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#0F172A' }}>
+                  <AnimatedNumber value={summary?.transactionCount || 0} />
                 </div>
-              </div>
+              </motion.div>
             </div>
           )}
         </>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createShopkeeper } from '../api/shopkeeper';
-import { Store, Phone, ArrowRight, Loader2 } from 'lucide-react';
+import { Store, Phone, ArrowRight, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 export default function Onboarding({ onComplete }) {
   const [shopName, setShopName] = useState('');
@@ -48,46 +49,74 @@ export default function Onboarding({ onComplete }) {
   };
 
   return (
-    <div style={{ padding: '2rem 1.25rem', minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-      <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-        <div style={{
-          width: '72px',
-          height: '72px',
-          backgroundColor: '#eff6ff',
-          color: '#2563eb',
-          borderRadius: '50%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 1rem auto'
-        }}>
-          <Store size={36} />
-        </div>
-        <h1 style={{ fontSize: '1.75rem', color: '#0f172a', marginBottom: '0.5rem' }}>
-          વોઇસ ઉધાર / Voice Udhar
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      style={{
+        padding: '2rem 1.5rem',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        maxWidth: '480px',
+        margin: '0 auto',
+      }}
+    >
+      <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+        <motion.div
+          initial={{ scale: 0.8, rotate: -5 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+          style={{
+            width: '84px',
+            height: '84px',
+            background: 'linear-gradient(135deg, #4C1D95 0%, #6D28D9 100%)',
+            color: '#F59E0B',
+            borderRadius: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1.25rem auto',
+            boxShadow: '0 12px 28px rgba(76, 29, 149, 0.25)',
+            position: 'relative',
+          }}
+        >
+          <Store size={42} />
+          <motion.div
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ repeat: Infinity, duration: 2.5 }}
+            style={{ position: 'absolute', top: '-4px', right: '-4px' }}
+          >
+            <Sparkles size={20} color="#F59E0B" fill="#F59E0B" />
+          </motion.div>
+        </motion.div>
+
+        <h1 style={{ fontSize: '2rem', color: '#0F172A', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
+          વોઇસ ઉધાર
         </h1>
-        <p style={{ color: '#64748b', fontSize: '1.1rem' }}>
+        <p style={{ color: '#4C1D95', fontSize: '1.15rem', fontWeight: '700' }}>
           તમારી દુકાનની નોંધણી કરો
         </p>
-        <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-          Register your shop to continue
+        <p style={{ color: '#64748B', fontSize: '0.925rem', marginTop: '0.2rem', fontWeight: '500' }}>
+          Register your shop to get started
         </p>
       </div>
 
       {error && (
-        <div className="error-banner" role="alert">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="error-banner" role="alert">
           {error}
-        </div>
+        </motion.div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <div className="form-group">
           <label className="form-label" htmlFor="shopName">
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Store size={20} color="#2563eb" />
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#0F172A' }}>
+              <Store size={20} color="#6D28D9" />
               દુકાનનું નામ
             </span>
-            <span className="form-sublabel">Shop Name / দোকান নাম</span>
+            <span className="form-sublabel">Shop Name</span>
           </label>
           <input
             id="shopName"
@@ -103,11 +132,11 @@ export default function Onboarding({ onComplete }) {
 
         <div className="form-group">
           <label className="form-label" htmlFor="phone">
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Phone size={20} color="#2563eb" />
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#0F172A' }}>
+              <Phone size={20} color="#6D28D9" />
               મોબાઇલ નંબર
             </span>
-            <span className="form-sublabel">Phone Number / મોબાઈલ નંબર</span>
+            <span className="form-sublabel">Phone Number</span>
           </label>
           <input
             id="phone"
@@ -121,7 +150,8 @@ export default function Onboarding({ onComplete }) {
           />
         </div>
 
-        <button
+        <motion.button
+          whileTap={{ scale: 0.98 }}
           type="submit"
           className="btn-primary"
           style={{ marginTop: '1.5rem' }}
@@ -135,11 +165,25 @@ export default function Onboarding({ onComplete }) {
           ) : (
             <>
               શરૂ કરો / Continue
-              <ArrowRight size={24} />
+              <ArrowRight size={22} />
             </>
           )}
-        </button>
+        </motion.button>
       </form>
-    </div>
+
+      <div style={{
+        marginTop: '2.5rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.5rem',
+        color: '#64748B',
+        fontSize: '0.85rem',
+        fontWeight: '500'
+      }}>
+        <ShieldCheck size={18} color="#10B981" />
+        <span>૧૦૦% સલામત અને સુરક્ષિત / 100% Safe & Secure</span>
+      </div>
+    </motion.div>
   );
 }
