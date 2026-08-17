@@ -6,12 +6,13 @@ Monorepo for Voice Udhar - Shopkeeper Billing & Udhaar Tracker.
 
 - **Onboarding**: Fast shopkeeper setup with persistent local storage.
 - **Voice Recording & AI Processing**: Record Gujarati voice billing commands, process with Gemini AI, preview extracted customer & amount details, edit if needed ("Sudharo"), and save transactions seamlessly ("Save ho gaya!").
-- **Bilingual Interface**: Gujarati primary script with English/Hindi secondary support, optimized for mobile devices.
+- **Customer List & Udhaar Tracking**: View all shopkeeper customers sorted by highest udhaar first, filter by customer name, manual refresh button, and view detailed chronological transaction history for each customer.
+- **Bilingual Interface**: Gujarati primary script with English/Hindi secondary support, optimized for mobile touch interaction.
 
 ## Projects
 
 - [`/backend`](./backend): Express.js REST API with Firestore database and Gemini AI integration.
-- [`/frontend`](./frontend): React/Vite progressive web app (PWA) with mobile-first voice recording design.
+- [`/frontend`](./frontend): React/Vite progressive web app (PWA) with mobile-first design.
 
 ## Local Development Instructions
 

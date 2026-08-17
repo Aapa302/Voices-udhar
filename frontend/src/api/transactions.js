@@ -25,3 +25,27 @@ export async function logTransaction(txData) {
 
   return data.data;
 }
+
+/**
+ * Get transaction history for a customer.
+ * @param {string} customerId
+ * @returns {Promise<Array>} List of transactions
+ */
+export async function getTransactionsByCustomer(customerId) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/transactions/${customerId}`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || 'ટ્રાન્ઝેક્શન હિસ્ટ્રી લાવવામાં ભૂલ આવી / Failed to fetch transaction history');
+  }
+
+  return data.data || [];
+}
