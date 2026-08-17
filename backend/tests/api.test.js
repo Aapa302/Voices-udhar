@@ -107,6 +107,8 @@ describe('Voice Udhar API Integration Tests', () => {
   });
 
   describe('Customers API', () => {
+    let otherShopkeeperId, otherApiKey;
+
     beforeEach(async () => {
       const res = await request(app)
         .post('/api/shopkeepers')
@@ -116,14 +118,22 @@ describe('Voice Udhar API Integration Tests', () => {
         });
       shopkeeperId = res.body.data.shopkeeperId;
       apiKey = res.body.data.apiKey;
+
+      const otherRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Other Shop',
+          phone: '9998887776',
+        });
+      otherShopkeeperId = otherRes.body.data.shopkeeperId;
+      otherApiKey = otherRes.body.data.apiKey;
     });
 
-    it('POST /api/customers should create a customer', async () => {
+    it('POST /api/customers should create a customer and enforce tenant isolation', async () => {
       const res = await request(app)
         .post('/api/customers')
         .set('x-api-key', apiKey)
         .send({
-          shopkeeperId,
           name: 'Ramesh Kumar',
           phone: '9988776655',
           totalUdhaar: 150,
@@ -131,23 +141,35 @@ describe('Voice Udhar API Integration Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty('customerId');
+      expect(res.body.data.shopkeeperId).toBe(shopkeeperId);
       expect(res.body.data.name).toBe('Ramesh Kumar');
       expect(res.body.data.totalUdhaar).toBe(150);
 
       customerId = res.body.data.customerId;
+
+      // Reject if shopkeeperId passed in body doesn't match authenticated key
+      const badRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          shopkeeperId: otherShopkeeperId,
+          name: 'Fake Customer',
+          phone: '0000000000',
+        });
+      expect(badRes.status).toBe(403);
     });
 
-    it('GET /api/customers/:shopkeeperId should list customers', async () => {
+    it('GET /api/customers/:shopkeeperId should list customers and enforce tenant isolation', async () => {
       await request(app)
         .post('/api/customers')
         .set('x-api-key', apiKey)
         .send({
-          shopkeeperId,
           name: 'Suresh Verma',
           phone: '9911223344',
           totalUdhaar: 200,
         });
 
+      // Request with matching param/key
       const res = await request(app)
         .get(`/api/customers/${shopkeeperId}`)
         .set('x-api-key', apiKey);
@@ -156,10 +178,54 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBe(1);
       expect(res.body.data[0].name).toBe('Suresh Verma');
+
+      // Request without param
+      const defaultRes = await request(app)
+        .get('/api/customers')
+        .set('x-api-key', apiKey);
+      expect(defaultRes.status).toBe(200);
+      expect(defaultRes.body.data.length).toBe(1);
+
+      // Request with mismatching shopkeeperId param
+      const forbiddenRes = await request(app)
+        .get(`/api/customers/${otherShopkeeperId}`)
+        .set('x-api-key', apiKey);
+      expect(forbiddenRes.status).toBe(403);
+    });
+
+    it('GET /api/customers/detail/:customerId should return single customer details scoped to tenant', async () => {
+      const createRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Detail Customer',
+          phone: '9898989898',
+          totalUdhaar: 500,
+        });
+
+      const custId = createRes.body.data.customerId;
+
+      // Owner should access details
+      const detailRes = await request(app)
+        .get(`/api/customers/detail/${custId}`)
+        .set('x-api-key', apiKey);
+
+      expect(detailRes.status).toBe(200);
+      expect(detailRes.body.data.name).toBe('Detail Customer');
+      expect(detailRes.body.data.totalUdhaar).toBe(500);
+
+      // Mismatching shopkeeper should be forbidden
+      const forbiddenRes = await request(app)
+        .get(`/api/customers/detail/${custId}`)
+        .set('x-api-key', otherApiKey);
+
+      expect(forbiddenRes.status).toBe(403);
     });
   });
 
   describe('Transactions API', () => {
+    let otherShopkeeperId, otherApiKey;
+
     beforeEach(async () => {
       const skRes = await request(app)
         .post('/api/shopkeepers')
@@ -170,11 +236,19 @@ describe('Voice Udhar API Integration Tests', () => {
       shopkeeperId = skRes.body.data.shopkeeperId;
       apiKey = skRes.body.data.apiKey;
 
+      const otherSkRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Other Shop',
+          phone: '2223334444',
+        });
+      otherShopkeeperId = otherSkRes.body.data.shopkeeperId;
+      otherApiKey = otherSkRes.body.data.apiKey;
+
       const custRes = await request(app)
         .post('/api/customers')
         .set('x-api-key', apiKey)
         .send({
-          shopkeeperId,
           name: 'Ramesh Kumar',
           phone: '9988776655',
           totalUdhaar: 100,
@@ -187,7 +261,6 @@ describe('Voice Udhar API Integration Tests', () => {
         .post('/api/transactions')
         .set('x-api-key', apiKey)
         .send({
-          shopkeeperId,
           customerId,
           type: 'udhaar_add',
           amount: 50,
@@ -212,7 +285,6 @@ describe('Voice Udhar API Integration Tests', () => {
         .post('/api/transactions')
         .set('x-api-key', apiKey)
         .send({
-          shopkeeperId,
           customerId,
           type: 'udhaar_paid',
           amount: 40,
@@ -229,25 +301,28 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(cust.totalUdhaar).toBe(60);
     });
 
-    it('GET /api/transactions/:customerId should return customer transaction history', async () => {
+    it('POST /api/transactions should enforce tenant isolation and forbid cross-tenant operations', async () => {
+      // Try logging a transaction for Ramesh using another shopkeeper's API key
+      const res = await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', otherApiKey)
+        .send({
+          customerId,
+          type: 'udhaar_add',
+          amount: 100,
+        });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('GET /api/transactions/:customerId should return transaction history and enforce tenant isolation', async () => {
       await request(app)
         .post('/api/transactions')
         .set('x-api-key', apiKey)
         .send({
-          shopkeeperId,
           customerId,
           type: 'udhaar_add',
           amount: 50,
-        });
-
-      await request(app)
-        .post('/api/transactions')
-        .set('x-api-key', apiKey)
-        .send({
-          shopkeeperId,
-          customerId,
-          type: 'udhaar_paid',
-          amount: 20,
         });
 
       const res = await request(app)
@@ -256,7 +331,14 @@ describe('Voice Udhar API Integration Tests', () => {
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data.length).toBe(2);
+      expect(res.body.data.length).toBe(1);
+
+      // Other shopkeeper cannot get Ramesh's transactions
+      const forbiddenRes = await request(app)
+        .get(`/api/transactions/${customerId}`)
+        .set('x-api-key', otherApiKey);
+
+      expect(forbiddenRes.status).toBe(403);
     });
   });
 

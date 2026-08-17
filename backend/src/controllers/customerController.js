@@ -7,13 +7,28 @@ const { v4: uuidv4 } = require('uuid');
  */
 const addOrUpdateCustomer = async (req, res) => {
   try {
-    const body = req.body || {};
-    const { customerId: providedCustomerId, shopkeeperId, name, phone, totalUdhaar } = body;
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
 
-    if (!shopkeeperId || !name || !phone) {
+    const body = req.body || {};
+    const { customerId: providedCustomerId, shopkeeperId: providedShopkeeperId, name, phone, totalUdhaar } = body;
+
+    if (providedShopkeeperId && providedShopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    if (!name || !phone) {
       return res.status(400).json({
         error: 'Bad Request',
-        message: 'shopkeeperId, name, and phone are required',
+        message: 'name and phone are required',
       });
     }
 
@@ -23,11 +38,18 @@ const addOrUpdateCustomer = async (req, res) => {
     const customerRef = db.collection('customers').doc(customerId);
     const existingDoc = await customerRef.get();
 
+    if (existingDoc.exists && existingDoc.data().shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Cannot modify customer belonging to another shopkeeper',
+      });
+    }
+
     let customerData;
     if (existingDoc.exists) {
       customerData = {
         ...existingDoc.data(),
-        shopkeeperId,
+        shopkeeperId: authShopkeeperId,
         name,
         phone,
         totalUdhaar: typeof totalUdhaar === 'number' ? totalUdhaar : existingDoc.data().totalUdhaar || 0,
@@ -37,7 +59,7 @@ const addOrUpdateCustomer = async (req, res) => {
     } else {
       customerData = {
         customerId,
-        shopkeeperId,
+        shopkeeperId: authShopkeeperId,
         name,
         phone,
         totalUdhaar: initialUdhaar,
@@ -50,7 +72,7 @@ const addOrUpdateCustomer = async (req, res) => {
     return res.status(200).json({
       message: existingDoc.exists ? 'Customer updated successfully' : 'Customer created successfully',
       customerId,
-      shopkeeperId,
+      shopkeeperId: authShopkeeperId,
       name,
       phone,
       totalUdhaar: customerData.totalUdhaar,
@@ -66,21 +88,29 @@ const addOrUpdateCustomer = async (req, res) => {
 };
 
 /**
- * GET /api/customers/:shopkeeperId
- * List all customers for a given shopkeeper with totalUdhaar
+ * GET /api/customers or GET /api/customers/:shopkeeperId
+ * List all customers for the authenticated shopkeeper
  */
 const getCustomersByShopkeeper = async (req, res) => {
   try {
-    const { shopkeeperId } = req.params;
-
-    if (!shopkeeperId) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'shopkeeperId parameter is required',
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
       });
     }
 
-    const snapshot = await db.collection('customers').where('shopkeeperId', '==', shopkeeperId).get();
+    const { shopkeeperId } = req.params;
+
+    if (shopkeeperId && shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    const snapshot = await db.collection('customers').where('shopkeeperId', '==', authShopkeeperId).get();
 
     const customers = [];
     snapshot.forEach((doc) => {
@@ -99,7 +129,61 @@ const getCustomersByShopkeeper = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/customers/detail/:customerId
+ * Get full details for a single customer, scoped to the authenticated shopkeeper
+ */
+const getSingleCustomer = async (req, res) => {
+  try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
+    const { customerId } = req.params;
+    if (!customerId) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'customerId parameter is required',
+      });
+    }
+
+    const customerRef = db.collection('customers').doc(customerId);
+    const doc = await customerRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Customer not found',
+      });
+    }
+
+    const customerData = doc.data();
+
+    if (customerData.shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Unauthorized access to customer details',
+      });
+    }
+
+    return res.status(200).json({
+      data: customerData,
+    });
+  } catch (error) {
+    console.error('Error fetching single customer:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Failed to fetch customer details',
+    });
+  }
+};
+
 module.exports = {
   addOrUpdateCustomer,
   getCustomersByShopkeeper,
+  getSingleCustomer,
 };

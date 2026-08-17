@@ -8,18 +8,36 @@ const { db } = require('../config/firebase');
  */
 const getDailySummary = async (req, res) => {
   try {
-    const { shopkeeperId } = req.params;
-
-    if (!shopkeeperId) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'shopkeeperId parameter is required',
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
       });
     }
 
+    const { shopkeeperId: paramShopkeeperId } = req.params;
+    if (paramShopkeeperId && paramShopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    // Compute start and end of today in IST (UTC+5:30)
+    const now = new Date();
+    const istDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+    const startOfTodayIST = new Date(`${istDateStr}T00:00:00.000+05:30`);
+    const endOfTodayIST = new Date(startOfTodayIST.getTime() + 24 * 60 * 60 * 1000);
+
+    const startISO = startOfTodayIST.toISOString();
+    const endISO = endOfTodayIST.toISOString();
+
     const snapshot = await db
       .collection('transactions')
-      .where('shopkeeperId', '==', shopkeeperId)
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .where('timestamp', '>=', startISO)
+      .where('timestamp', '<', endISO)
       .get();
 
     let totalSales = 0;
@@ -27,25 +45,17 @@ const getDailySummary = async (req, res) => {
     let totalUdhaarCollected = 0;
     let transactionCount = 0;
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
     snapshot.forEach((doc) => {
       const data = doc.data();
-      const txTime = data.timestamp ? new Date(data.timestamp) : null;
+      transactionCount++;
+      const amount = Number(data.amount) || 0;
 
-      // Filter for today's transactions
-      if (txTime && txTime >= startOfToday) {
-        transactionCount++;
-        const amount = Number(data.amount) || 0;
-
-        if (data.type === 'sale') {
-          totalSales += amount;
-        } else if (data.type === 'udhaar_add') {
-          totalNewUdhaar += amount;
-        } else if (data.type === 'udhaar_paid') {
-          totalUdhaarCollected += amount;
-        }
+      if (data.type === 'sale') {
+        totalSales += amount;
+      } else if (data.type === 'udhaar_add') {
+        totalNewUdhaar += amount;
+      } else if (data.type === 'udhaar_paid') {
+        totalUdhaarCollected += amount;
       }
     });
 
