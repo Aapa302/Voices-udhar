@@ -105,11 +105,22 @@ export default function CustomerHistoryScreen() {
       {/* Back Button & Title Header */}
       <div className="history-header">
         <motion.button whileTap={{ scale: 0.95 }} className="back-button" onClick={() => navigate('/customers')}>
-          <ArrowLeft size={20} color="#4C1D95" />
-          પાછા જાઓ / Back
+          <ArrowLeft size={20} color="#F0C674" />
+          <span>પાછા જાઓ / Back</span>
         </motion.button>
-        <motion.button whileTap={{ scale: 0.92 }} className="btn-icon" onClick={fetchHistory} title="Refresh" style={{ marginLeft: 'auto', backgroundColor: '#ffffff', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
-          <RotateCcw size={20} color="#6D28D9" />
+        <motion.button
+          whileTap={{ scale: 0.92 }}
+          className="btn-icon"
+          onClick={fetchHistory}
+          title="Refresh"
+          style={{
+            marginLeft: 'auto',
+            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: '10px'
+          }}
+        >
+          <RotateCcw size={20} color="#F0C674" />
         </motion.button>
       </div>
 
@@ -117,20 +128,25 @@ export default function CustomerHistoryScreen() {
       {customerFromState && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="customer-summary-card">
           <div>
-            <h2 style={{ fontSize: '1.4rem', color: '#0F172A', letterSpacing: '-0.01em' }}>{customerFromState.name}</h2>
+            <h2 style={{ fontSize: '1.4rem', color: '#F8FAFC', letterSpacing: '-0.01em', fontFamily: "'Outfit', sans-serif" }}>
+              {customerFromState.name}
+            </h2>
             {customerFromState.phone && customerFromState.phone !== '0000000000' && (
-              <p style={{ color: '#64748B', fontSize: '0.95rem', marginTop: '0.2rem', fontWeight: '500' }}>
+              <p style={{ color: '#94A3B8', fontSize: '0.95rem', marginTop: '0.2rem', fontWeight: '500' }}>
                 {customerFromState.phone}
               </p>
             )}
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '0.825rem', color: '#64748B', fontWeight: '700' }}>કુલ બાકી / Total Udhaar</div>
-            <div style={{
-              fontSize: '1.6rem',
-              fontWeight: '800',
-              color: Number(customerFromState.totalUdhaar) > 0 ? '#F97316' : '#10B981'
-            }}>
+            <div style={{ fontSize: '0.825rem', color: '#94A3B8', fontWeight: '700' }}>કુલ બાકી / Total Udhaar</div>
+            <div
+              className="number-font"
+              style={{
+                fontSize: '1.7rem',
+                fontWeight: '900',
+                color: Number(customerFromState.totalUdhaar) > 0 ? '#F97316' : '#10B981'
+              }}
+            >
               ₹{Number(customerFromState.totalUdhaar) || 0}
             </div>
           </div>
@@ -141,9 +157,9 @@ export default function CustomerHistoryScreen() {
 
       {/* Loading State */}
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 0' }}>
-          <Loader2 className="animate-spin" size={44} color="#6D28D9" />
-          <p style={{ marginTop: '1rem', color: '#64748B', fontSize: '1.1rem', fontWeight: '600' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0' }}>
+          <Loader2 className="animate-spin" size={44} color="#C026D3" />
+          <p style={{ marginTop: '1rem', color: '#94A3B8', fontSize: '1.1rem', fontWeight: '600' }}>
             હિસ્ટ્રી લોડ થઈ રહી છે... / Loading history...
           </p>
         </div>
@@ -153,13 +169,14 @@ export default function CustomerHistoryScreen() {
           <div style={{
             width: '72px',
             height: '72px',
-            background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
-            color: '#6D28D9',
+            background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(192, 38, 211, 0.25) 100%)',
+            color: '#F0C674',
             borderRadius: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 8px 20px rgba(109, 40, 217, 0.12)'
+            boxShadow: '0 8px 20px rgba(124, 58, 237, 0.2)',
+            border: '1px solid rgba(240, 198, 116, 0.3)'
           }}>
             <Receipt size={36} />
           </div>
@@ -173,7 +190,7 @@ export default function CustomerHistoryScreen() {
       ) : (
         /* Transaction History List */
         <div>
-          <h3 style={{ fontSize: '1.15rem', marginBottom: '1rem', color: '#0F172A' }}>
+          <h3 style={{ fontSize: '1.15rem', marginBottom: '1rem', color: '#F8FAFC', fontFamily: "'Outfit', sans-serif" }}>
             ટ્રાન્ઝેક્શન હિસ્ટ્રી / Transaction History
           </h3>
           {transactions.map((tx, index) => {
@@ -192,19 +209,19 @@ export default function CustomerHistoryScreen() {
                   <span className={`action-badge ${actionInfo.badgeClass}`}>
                     {actionInfo.gu} / {actionInfo.en}
                   </span>
-                  <div className="transaction-amount" style={{ color: isUdhaarAdd ? '#F97316' : '#10B981' }}>
+                  <div className="transaction-amount number-font" style={{ color: isUdhaarAdd ? '#F97316' : '#10B981' }}>
                     {isUdhaarAdd ? '+' : '-'}₹{tx.amount}
                   </div>
                 </div>
 
                 <div className="transaction-date" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Calendar size={14} color="#64748B" />
+                  <Calendar size={14} color="#94A3B8" />
                   {formatDate(tx.timestamp)}
                 </div>
 
                 {tx.items && tx.items.length > 0 && (
                   <div className="transaction-items">
-                    <span style={{ fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#4C1D95' }}>
+                    <span style={{ fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#F0C674' }}>
                       <ShoppingBag size={14} /> વસ્તૂઓ / Items:
                     </span>{' '}
                     {tx.items.join(', ')}
@@ -212,7 +229,7 @@ export default function CustomerHistoryScreen() {
                 )}
 
                 {tx.rawVoiceText && (
-                  <div style={{ fontSize: '0.825rem', color: '#94A3B8', fontStyle: 'italic', marginTop: '0.2rem' }}>
+                  <div style={{ fontSize: '0.825rem', color: '#64748B', fontStyle: 'italic', marginTop: '0.2rem' }}>
                     "{tx.rawVoiceText}"
                   </div>
                 )}
@@ -227,8 +244,9 @@ export default function CustomerHistoryScreen() {
                       minHeight: '38px',
                       width: 'auto',
                       fontWeight: '700',
-                      borderColor: '#DDD6FE',
-                      color: '#6D28D9'
+                      borderColor: 'rgba(240, 198, 116, 0.3)',
+                      color: '#F0C674',
+                      background: 'rgba(240, 198, 116, 0.08)'
                     }}
                     onClick={() => handleViewBill(tx)}
                     disabled={loadingBillTxId === tx.transactionId}
@@ -236,7 +254,7 @@ export default function CustomerHistoryScreen() {
                     {loadingBillTxId === tx.transactionId ? (
                       <Loader2 className="animate-spin" size={16} />
                     ) : (
-                      <FileText size={16} color="#6D28D9" />
+                      <FileText size={16} color="#F0C674" />
                     )}
                     બીલ જુઓ / Bill Dekho
                   </motion.button>

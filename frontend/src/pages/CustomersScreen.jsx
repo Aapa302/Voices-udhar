@@ -73,18 +73,18 @@ export default function CustomersScreen() {
           whileTap={{ scale: 0.92 }}
           className="btn-icon"
           style={{
-            border: '2px solid var(--border-color)',
             height: '48px',
             width: '48px',
             borderRadius: 'var(--radius-md)',
-            backgroundColor: '#ffffff'
+            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            borderColor: 'rgba(255, 255, 255, 0.12)'
           }}
           onClick={() => fetchCustomersList(true)}
           disabled={loading || refreshing}
           title="Refresh List"
           aria-label="Refresh Customer List"
         >
-          <RotateCcw className={refreshing ? 'animate-spin' : ''} size={22} color="#6D28D9" />
+          <RotateCcw className={refreshing ? 'animate-spin' : ''} size={22} color="#F0C674" />
         </motion.button>
       </div>
 
@@ -92,9 +92,9 @@ export default function CustomersScreen() {
 
       {/* Loading State */}
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 0' }}>
-          <Loader2 className="animate-spin" size={44} color="#6D28D9" />
-          <p style={{ marginTop: '1rem', color: '#64748B', fontSize: '1.1rem', fontWeight: '600' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0' }}>
+          <Loader2 className="animate-spin" size={44} color="#C026D3" />
+          <p style={{ marginTop: '1rem', color: '#94A3B8', fontSize: '1.1rem', fontWeight: '600' }}>
             ગ્રાહકોની યાદી લોડ થઈ રહી છે... / Loading customers...
           </p>
         </div>
@@ -104,13 +104,14 @@ export default function CustomersScreen() {
           <div style={{
             width: '72px',
             height: '72px',
-            background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
-            color: '#6D28D9',
+            background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(192, 38, 211, 0.25) 100%)',
+            color: '#F0C674',
             borderRadius: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 8px 20px rgba(109, 40, 217, 0.12)'
+            boxShadow: '0 8px 20px rgba(124, 58, 237, 0.2)',
+            border: '1px solid rgba(240, 198, 116, 0.3)'
           }}>
             <Users size={36} />
           </div>
@@ -144,7 +145,7 @@ export default function CustomersScreen() {
                   <div className="customer-name">{customer.name}</div>
                   {customer.phone && customer.phone !== '0000000000' && (
                     <div className="customer-phone">
-                      <Phone size={14} color="#64748B" />
+                      <Phone size={14} color="#94A3B8" />
                       {customer.phone}
                     </div>
                   )}
@@ -159,7 +160,7 @@ export default function CustomersScreen() {
                       {hasUdhaar ? 'બાકી ઉધાર' : 'જમા ચૂકવ્યું'}
                     </div>
                   </div>
-                  <ChevronRight size={22} color="#94A3B8" />
+                  <ChevronRight size={22} color="#64748B" />
                 </div>
               </motion.div>
             );

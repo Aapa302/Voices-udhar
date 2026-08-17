@@ -298,14 +298,14 @@ export default function HomeScreen() {
 
       {/* 1. PERMISSION DENIED STATE */}
       {screenState === SCREEN_STATE.PERMISSION_DENIED && (
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="confirmation-card" style={{ textCenter: 'center', borderColor: '#fca5a5' }}>
-          <div style={{ color: '#ef4444', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="confirmation-card" style={{ textAlign: 'center', borderColor: 'rgba(244, 63, 94, 0.4)' }}>
+          <div style={{ color: '#f43f5e', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
             <AlertCircle size={52} />
           </div>
-          <h2 style={{ fontSize: '1.35rem', marginBottom: '0.5rem', color: '#0F172A', textAlign: 'center' }}>
+          <h2 style={{ fontSize: '1.35rem', marginBottom: '0.5rem', color: '#F8FAFC', textAlign: 'center' }}>
             માઇક્રોફોન મંજૂરી નકારી / Mic Permission Denied
           </h2>
-          <p style={{ color: '#64748B', fontSize: '1rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+          <p style={{ color: '#94A3B8', fontSize: '1rem', marginBottom: '1.5rem', textAlign: 'center' }}>
             અવાજ રેકોર્ડ કરવા માટે બ્રાઉઝર સેટિંગ્સમાંથી માઇક્રોફોન પરમિશન આપો.
             <br />
             Please allow microphone access in your browser settings to record voice.
@@ -319,7 +319,7 @@ export default function HomeScreen() {
 
       {/* 2. ERROR STATE ("Sunai nahi diya, phir se bolo") */}
       {screenState === SCREEN_STATE.ERROR && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card" style={{ textCenter: 'center' }}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card" style={{ textAlign: 'center' }}>
           <div className="error-banner">
             {errorMessage || 'સંભળાયું નથી, ફરી બોલો / Sunai nahi diya, phir se bolo'}
           </div>
@@ -338,15 +338,15 @@ export default function HomeScreen() {
               <>
                 <motion.div
                   className="mic-pulse-ring"
-                  animate={{ scale: [1, 1.45, 1], opacity: [0.7, 0, 0.7] }}
-                  transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
-                  style={{ background: 'radial-gradient(circle, rgba(239, 68, 68, 0.4) 0%, rgba(239, 68, 68, 0) 70%)' }}
+                  animate={{ scale: [1, 1.55, 1], opacity: [0.8, 0, 0.8] }}
+                  transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
+                  style={{ background: 'radial-gradient(circle, rgba(244, 63, 94, 0.5) 0%, rgba(244, 63, 94, 0) 70%)' }}
                 />
                 <motion.div
                   className="mic-pulse-ring"
-                  animate={{ scale: [1, 1.25, 1], opacity: [0.9, 0.2, 0.9] }}
-                  transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut', delay: 0.3 }}
-                  style={{ background: 'radial-gradient(circle, rgba(239, 68, 68, 0.5) 0%, rgba(239, 68, 68, 0) 70%)' }}
+                  animate={{ scale: [1, 1.35, 1], opacity: [0.9, 0.1, 0.9] }}
+                  transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut', delay: 0.3 }}
+                  style={{ background: 'radial-gradient(circle, rgba(192, 38, 211, 0.6) 0%, rgba(192, 38, 211, 0) 70%)' }}
                 />
               </>
             )}
@@ -354,22 +354,23 @@ export default function HomeScreen() {
             {screenState === SCREEN_STATE.IDLE && (
               <motion.div
                 className="mic-pulse-ring"
-                animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0.15, 0.5] }}
-                transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
+                animate={{ scale: [1, 1.2, 1], opacity: [0.6, 0.15, 0.6] }}
+                transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                style={{ background: 'radial-gradient(circle, rgba(124, 58, 237, 0.4) 0%, rgba(124, 58, 237, 0) 70%)' }}
               />
             )}
 
             <motion.button
               whileTap={{ scale: 0.92 }}
-              whileHover={{ scale: 1.04 }}
+              whileHover={{ scale: 1.05 }}
               className={`mic-button ${screenState === SCREEN_STATE.RECORDING ? 'recording' : ''}`}
               onClick={screenState === SCREEN_STATE.RECORDING ? stopRecording : startRecording}
               aria-label={screenState === SCREEN_STATE.RECORDING ? 'Stop recording' : 'Start recording'}
             >
               {screenState === SCREEN_STATE.RECORDING ? (
-                <Square size={52} fill="currentColor" />
+                <Square size={48} fill="currentColor" />
               ) : (
-                <Mic size={60} />
+                <Mic size={56} color="#ffffff" />
               )}
             </motion.button>
           </div>
@@ -379,9 +380,11 @@ export default function HomeScreen() {
             animate={{ opacity: 1 }}
             className="mic-status-label"
           >
-            {screenState === SCREEN_STATE.RECORDING
-              ? 'રેકોર્ડિંગ ચાલુ છે... (Recording...)'
-              : 'બોલવા માટે માઇક પર દબાવો'}
+            {screenState === SCREEN_STATE.RECORDING ? (
+              <span style={{ color: '#F43F5E' }}>રેકોર્ડિંગ ચાલુ છે... (Recording...)</span>
+            ) : (
+              <span>બોલવા માટે માઇક પર દબાવો</span>
+            )}
           </motion.div>
           <div className="mic-status-sub">
             {screenState === SCREEN_STATE.RECORDING
@@ -395,22 +398,23 @@ export default function HomeScreen() {
       {screenState === SCREEN_STATE.PROCESSING && (
         <div className="mic-container">
           <motion.div
-            animate={{ scale: [1, 1.08, 1] }}
-            transition={{ repeat: Infinity, duration: 1.2 }}
+            animate={{ scale: [1, 1.1, 1], rotate: [0, 180, 360] }}
+            transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
             style={{
               width: '110px',
               height: '110px',
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, #F3E8FF 0%, #EDE9FE 100%)',
-              color: '#6D28D9',
+              background: 'radial-gradient(circle at 35% 35%, #C026D3 0%, #7C3AED 100%)',
+              color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               marginBottom: '1rem',
-              boxShadow: '0 8px 20px rgba(109, 40, 217, 0.15)'
+              boxShadow: '0 12px 30px rgba(124, 58, 237, 0.4)',
+              border: '2px solid rgba(240, 198, 116, 0.4)'
             }}
           >
-            <Loader2 className="animate-spin" size={52} />
+            <Loader2 className="animate-spin" size={52} color="#F0C674" />
           </motion.div>
           <div className="mic-status-label">સમજી રહ્યા છીએ...</div>
           <div className="mic-status-sub">Samajh raha hu...</div>
@@ -439,7 +443,7 @@ export default function HomeScreen() {
               </span>
             </div>
             {parsedData.transcription && (
-              <div style={{ marginTop: '0.85rem', fontSize: '0.9rem', color: '#64748B', fontStyle: 'italic', background: '#ffffff', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed #E7E5E4' }}>
+              <div style={{ marginTop: '0.85rem', fontSize: '0.9rem', color: '#94A3B8', fontStyle: 'italic', background: 'rgba(255, 255, 255, 0.04)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed rgba(255, 255, 255, 0.12)' }}>
                 "{parsedData.transcription}"
               </div>
             )}
@@ -461,7 +465,7 @@ export default function HomeScreen() {
       {/* 6. EDITING STATE */}
       {screenState === SCREEN_STATE.EDITING && (
         <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card">
-          <h2 style={{ fontSize: '1.3rem', marginBottom: '1.25rem', color: '#0F172A', textAlign: 'center' }}>
+          <h2 style={{ fontSize: '1.3rem', marginBottom: '1.25rem', color: '#F8FAFC', textAlign: 'center' }}>
             વિગતો સુધારો / Edit Details
           </h2>
 
@@ -538,7 +542,7 @@ export default function HomeScreen() {
       {/* 7. SAVING STATE */}
       {screenState === SCREEN_STATE.SAVING && (
         <div className="mic-container">
-          <Loader2 className="animate-spin" size={52} color="#6D28D9" />
+          <Loader2 className="animate-spin" size={52} color="#C026D3" />
           <div className="mic-status-label" style={{ marginTop: '1rem' }}>
             સેવ થઈ રહ્યું છે...
           </div>
@@ -559,8 +563,8 @@ export default function HomeScreen() {
             animate={{ scale: 1 }}
             transition={{ type: 'spring', delay: 0.1, stiffness: 500, damping: 20 }}
             style={{
-              width: '80px',
-              height: '80px',
+              width: '84px',
+              height: '84px',
               borderRadius: '50%',
               background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
               color: '#ffffff',
@@ -568,7 +572,8 @@ export default function HomeScreen() {
               alignItems: 'center',
               justifyContent: 'center',
               marginBottom: '1rem',
-              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.3)'
+              boxShadow: '0 12px 30px rgba(16, 185, 129, 0.4)',
+              border: '2px solid rgba(255, 255, 255, 0.3)'
             }}
           >
             <Check size={48} strokeWidth={3} />
@@ -576,7 +581,7 @@ export default function HomeScreen() {
           <div className="success-banner" style={{ width: '100%' }}>
             Save ho gaya! / સેવ થઈ ગયું!
           </div>
-          <p style={{ color: '#64748B', fontSize: '1rem', textAlign: 'center', fontWeight: '500' }}>
+          <p style={{ color: '#94A3B8', fontSize: '1rem', textAlign: 'center', fontWeight: '500' }}>
             ટ્રાન્ઝેક્શન સફળતાપૂર્વક ઉમેરાઈ ગયું છે.
           </p>
         </motion.div>
