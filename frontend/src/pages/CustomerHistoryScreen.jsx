@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Loader2, Calendar, ShoppingBag, Receipt, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Loader2, Calendar, ShoppingBag, Receipt, RotateCcw, FileText } from 'lucide-react';
 import { getTransactionsByCustomer } from '../api/transactions';
+import { generateBillApi } from '../api/bill';
+import BillModal from '../components/BillModal';
 
 // Map transaction type to human readable label
 const getActionLabel = (txType) => {
@@ -28,6 +30,8 @@ export default function CustomerHistoryScreen() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [billModalData, setBillModalData] = useState(null);
+  const [loadingBillTxId, setLoadingBillTxId] = useState(null);
 
   const fetchHistory = async () => {
     if (!customerId) return;
@@ -51,6 +55,29 @@ export default function CustomerHistoryScreen() {
     fetchHistory();
   }, [customerId]);
 
+  const handleViewBill = async (tx) => {
+    const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
+    setLoadingBillTxId(tx.transactionId);
+
+    try {
+      const bill = await generateBillApi({
+        shopkeeperId,
+        customerId: tx.customerId,
+        customerName: customerFromState?.name || 'Valued Customer',
+        customerPhone: customerFromState?.phone || '',
+        items: tx.items || [],
+        totalAmount: tx.amount,
+      });
+
+      setBillModalData(bill);
+    } catch (err) {
+      console.error('Failed to view bill:', err);
+      alert('બિલ બનાવવામાં સમસ્યા આવી. / Error generating bill preview.');
+    } finally {
+      setLoadingBillTxId(null);
+    }
+  };
+
   const formatDate = (isoString) => {
     if (!isoString) return '';
     try {
@@ -69,6 +96,11 @@ export default function CustomerHistoryScreen() {
 
   return (
     <div className="main-content">
+      {/* BILL MODAL PREVIEW */}
+      {billModalData && (
+        <BillModal billData={billModalData} onClose={() => setBillModalData(null)} />
+      )}
+
       {/* Back Button & Title Header */}
       <div className="history-header">
         <button className="back-button" onClick={() => navigate('/customers')}>
@@ -176,6 +208,27 @@ export default function CustomerHistoryScreen() {
                     "{tx.rawVoiceText}"
                   </div>
                 )}
+
+                <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn-secondary"
+                    style={{
+                      padding: '0.4rem 0.875rem',
+                      fontSize: '0.875rem',
+                      minHeight: '38px',
+                      width: 'auto',
+                    }}
+                    onClick={() => handleViewBill(tx)}
+                    disabled={loadingBillTxId === tx.transactionId}
+                  >
+                    {loadingBillTxId === tx.transactionId ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : (
+                      <FileText size={16} />
+                    )}
+                    બીલ જુઓ / Bill Dekho
+                  </button>
+                </div>
               </div>
             );
           })}

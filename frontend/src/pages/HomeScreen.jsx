@@ -3,6 +3,8 @@ import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle
 import { processVoiceAudio } from '../api/voice';
 import { getCustomers, createCustomer } from '../api/customers';
 import { logTransaction } from '../api/transactions';
+import { generateBillApi } from '../api/bill';
+import BillModal from '../components/BillModal';
 
 // State Enum
 const SCREEN_STATE = {
@@ -42,6 +44,8 @@ export default function HomeScreen() {
   const [screenState, setScreenState] = useState(SCREEN_STATE.IDLE);
   const [errorMessage, setErrorMessage] = useState('');
   const [parsedData, setParsedData] = useState(null);
+  const [generatedBill, setGeneratedBill] = useState(null);
+  const [showBillModal, setShowBillModal] = useState(false);
 
   // Form state for Editing
   const [editCustomerName, setEditCustomerName] = useState('');
@@ -229,11 +233,31 @@ export default function HomeScreen() {
         rawVoiceText: parsedData?.transcription || '',
       });
 
+      // Automatically generate bill preview
+      try {
+        const billResult = await generateBillApi({
+          shopkeeperId,
+          customerId: customer.customerId,
+          customerName: cleanName,
+          customerPhone: customer.phone,
+          items: parsedData?.items || [],
+          totalAmount: numAmount,
+        });
+
+        setGeneratedBill(billResult);
+        setShowBillModal(true);
+      } catch (billErr) {
+        console.error('Bill generation error:', billErr);
+        // Even if bill generation API fails, still show transaction success
+      }
+
       setScreenState(SCREEN_STATE.SUCCESS);
 
-      // Auto reset after 2.5 seconds
+      // Auto reset after 2.5 seconds if modal is not open
       setTimeout(() => {
-        resetToIdle();
+        if (!showBillModal) {
+          resetToIdle();
+        }
       }, 2500);
     } catch (err) {
       console.error('Error saving transaction:', err);
@@ -256,10 +280,22 @@ export default function HomeScreen() {
     setScreenState(SCREEN_STATE.IDLE);
     setErrorMessage('');
     setParsedData(null);
+    setGeneratedBill(null);
+    setShowBillModal(false);
+  };
+
+  const handleCloseBillModal = () => {
+    setShowBillModal(false);
+    resetToIdle();
   };
 
   return (
     <div className="main-content">
+      {/* BILL PREVIEW MODAL */}
+      {showBillModal && generatedBill && (
+        <BillModal billData={generatedBill} onClose={handleCloseBillModal} />
+      )}
+
       {/* 1. PERMISSION DENIED STATE */}
       {screenState === SCREEN_STATE.PERMISSION_DENIED && (
         <div className="confirmation-card" style={{ textCenter: 'center', borderColor: '#fecaca' }}>
