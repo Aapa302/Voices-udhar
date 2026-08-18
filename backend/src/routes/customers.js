@@ -6,6 +6,15 @@ const apiKeyAuth = require('../middleware/auth');
 // All customer endpoints require API key auth
 router.use(apiKeyAuth);
 
+// GET /api/customers/reminders — get smart reminders for authenticated shopkeeper
+router.get('/reminders', customerController.getCustomerReminders);
+
+// GET /api/customers/reminders/:shopkeeperId — get smart reminders for shopkeeper
+router.get('/reminders/:shopkeeperId', customerController.getCustomerReminders);
+
+// POST /api/customers/:customerId/reminder-sent — mark reminder as sent
+router.post('/:customerId/reminder-sent', customerController.markReminderSent);
+
 // GET /api/customers/alerts — get pending udhaar alerts for authenticated shopkeeper
 router.get('/alerts', customerController.getCustomerAlerts);
 

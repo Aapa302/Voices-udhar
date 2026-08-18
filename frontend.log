@@ -8,3 +8,5 @@
   ➜  Local:   http://localhost:3000/
   ➜  Network: use --host to expose
 6:59:53 PM [vite] (client) hmr update /src/pages/HomeScreen.jsx
+7:09:41 PM [vite] (client) hmr update /src/pages/HomeScreen.jsx, /src/pages/CustomersScreen.jsx, /src/pages/CustomerHistoryScreen.jsx, /src/pages/AlertsScreen.jsx
+7:10:00 PM [vite] (client) hmr update /src/pages/HomeScreen.jsx
