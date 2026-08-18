@@ -54,6 +54,41 @@ export default function HomeScreen() {
   const [editPhone, setEditPhone] = useState('');
   const [editTxType, setEditTxType] = useState('udhaar_add');
 
+  // Ref for auto-focusing name input in EDITING mode
+  const editCustomerNameInputRef = useRef(null);
+
+  // Auto-focus & select name input text when entering EDITING mode
+  useEffect(() => {
+    if (screenState === SCREEN_STATE.EDITING && editCustomerNameInputRef.current) {
+      editCustomerNameInputRef.current.focus();
+      editCustomerNameInputRef.current.select();
+    }
+  }, [screenState]);
+
+  // Quick consonant swap helper function for commonly confused Gujarati pairs
+  const handleSwapConsonantPair = (charA, charB) => {
+    if (!editCustomerName) {
+      setEditCustomerName(charA);
+      return;
+    }
+
+    const hasA = editCustomerName.includes(charA);
+    const hasB = editCustomerName.includes(charB);
+
+    if (hasA) {
+      // Replace all occurrences of charA with charB
+      const updated = editCustomerName.replaceAll(charA, charB);
+      setEditCustomerName(updated);
+    } else if (hasB) {
+      // Replace all occurrences of charB with charA
+      const updated = editCustomerName.replaceAll(charB, charA);
+      setEditCustomerName(updated);
+    } else {
+      // If neither character is present, append charB
+      setEditCustomerName(editCustomerName + charB);
+    }
+  };
+
   // Media recorder refs & recording start time
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -469,8 +504,23 @@ export default function HomeScreen() {
           </div>
 
           <div className="parsed-result-box">
-            <div className="parsed-main-text">
-              {parsedData.customerName}, ₹{parsedData.amount}
+            <div className="parsed-main-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span>{parsedData.customerName}, ₹{parsedData.amount}</span>
+              {!parsedData.suggestedName && (
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: '12px',
+                    backgroundColor: 'rgba(124, 58, 237, 0.25)',
+                    color: '#C084FC',
+                    border: '1px solid rgba(192, 132, 252, 0.4)',
+                    fontWeight: '600',
+                  }}
+                >
+                  ✨ નવો ગ્રાહક / New Customer
+                </span>
+              )}
             </div>
 
             {/* Quick-select tap options if a suggested match or low name confidence */}
@@ -598,6 +648,7 @@ export default function HomeScreen() {
                 <span className="form-sublabel"> Customer Name</span>
               </label>
               <input
+                ref={editCustomerNameInputRef}
                 id="editCustomer"
                 type="text"
                 className="form-input"
@@ -605,6 +656,42 @@ export default function HomeScreen() {
                 onChange={(e) => setEditCustomerName(e.target.value)}
                 required
               />
+
+              {/* Quick consonant swap shortcut buttons */}
+              <div style={{ marginTop: '0.6rem' }}>
+                <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginBottom: '0.3rem', fontWeight: '500' }}>
+                  ⚡ ઝડપી અક્ષર બદલો (Quick Swap):
+                </div>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  {[
+                    ['બ', 'ભ'],
+                    ['ક', 'ખ'],
+                    ['ગ', 'ઘ'],
+                    ['ડ', 'ઢ'],
+                    ['પ', 'ફ'],
+                    ['ત', 'થ'],
+                  ].map(([a, b]) => (
+                    <button
+                      key={`${a}-${b}`}
+                      type="button"
+                      onClick={() => handleSwapConsonantPair(a, b)}
+                      style={{
+                        padding: '0.25rem 0.55rem',
+                        fontSize: '0.8rem',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(240, 198, 116, 0.3)',
+                        backgroundColor: 'rgba(240, 198, 116, 0.1)',
+                        color: '#F0C674',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                      }}
+                      title={`Swap ${a} ↔ ${b}`}
+                    >
+                      {a} ↔ {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="form-group">
