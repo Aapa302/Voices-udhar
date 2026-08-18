@@ -4,6 +4,11 @@ process.env.NODE_ENV = 'test';
 const request = require('supertest');
 const app = require('../src/app');
 const { db } = require('../src/config/firebase');
+const {
+  levenshteinDistance,
+  normalizeGujaratiPhonetics,
+  findSuggestedCustomerName,
+} = require('../src/controllers/voiceController');
 
 describe('Voice Udhar API Integration Tests', () => {
   let shopkeeperId;
@@ -342,46 +347,79 @@ describe('Voice Udhar API Integration Tests', () => {
     });
   });
 
-  describe('Voice Processing API', () => {
-    beforeEach(async () => {
-      const skRes = await request(app)
-        .post('/api/shopkeepers')
-        .send({
-          shopName: 'Test Shop',
-          phone: '1112223333',
-        });
-      shopkeeperId = skRes.body.data.shopkeeperId;
-      apiKey = skRes.body.data.apiKey;
+  describe('Voice Processing & Gujarati Phonetic Matching Unit Tests', () => {
+    describe('normalizeGujaratiPhonetics', () => {
+      it('normalizes common Gujarati consonant confusion pairs', () => {
+        expect(normalizeGujaratiPhonetics('ભરત')).toBe('બરત');
+        expect(normalizeGujaratiPhonetics('બળવંત')).toBe('બળવંત');
+        expect(normalizeGujaratiPhonetics('રમણભાઈ')).toBe('રમણ');
+      });
     });
 
-    it('POST /api/voice/process should return 400 if audio data is missing', async () => {
-      const res = await request(app)
-        .post('/api/voice/process')
-        .set('x-api-key', apiKey)
-        .send({});
-
-      expect(res.status).toBe(400);
+    describe('levenshteinDistance', () => {
+      it('computes correct edit distance', () => {
+        expect(levenshteinDistance('રમેશ', 'રમેશ')).toBe(0);
+        expect(levenshteinDistance('રમેશ', 'રામેશ')).toBe(1);
+        expect(levenshteinDistance('સુરેશ', 'રમેશ')).toBe(3);
+      });
     });
 
-    it('POST /api/voice/process should return structured JSON for base64 audio', async () => {
-      const dummyAudioBase64 = Buffer.from('mock audio').toString('base64');
+    describe('findSuggestedCustomerName', () => {
+      it('identifies close phonetic matches against existing customer list', () => {
+        const existing = ['ભરત પટેલ', 'રમેશ ભાઈ', 'સુરેશ'];
+        // 'બરાત પટેલ' -> normalized matches 'ભરત પટેલ'
+        expect(findSuggestedCustomerName('બરાત પટેલ', existing)).toBe('ભરત પટેલ');
+      });
 
-      const res = await request(app)
-        .post('/api/voice/process')
-        .set('x-api-key', apiKey)
-        .send({
-          audioBase64: dummyAudioBase64,
-          mimeType: 'audio/mp3',
-        });
+      it('returns null if there is an exact match or no close match', () => {
+        const existing = ['રમેશ'];
+        expect(findSuggestedCustomerName('રમેશ', existing)).toBeNull();
+        expect(findSuggestedCustomerName('વિક્રમ', existing)).toBeNull();
+      });
+    });
 
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('transcription_gujarati');
-      expect(res.body).toHaveProperty('translation_english');
-      expect(res.body).toHaveProperty('intent');
-      expect(res.body).toHaveProperty('customer_name');
-      expect(res.body).toHaveProperty('amount');
-      expect(res.body).toHaveProperty('items');
-      expect(res.body).toHaveProperty('confidence');
+    describe('POST /api/voice/process', () => {
+      beforeEach(async () => {
+        const skRes = await request(app)
+          .post('/api/shopkeepers')
+          .send({
+            shopName: 'Test Shop',
+            phone: '1112223333',
+          });
+        shopkeeperId = skRes.body.data.shopkeeperId;
+        apiKey = skRes.body.data.apiKey;
+      });
+
+      it('should return 400 if audio data is missing', async () => {
+        const res = await request(app)
+          .post('/api/voice/process')
+          .set('x-api-key', apiKey)
+          .send({});
+
+        expect(res.status).toBe(400);
+      });
+
+      it('should return structured JSON with name confidence and suggested customer name', async () => {
+        const dummyAudioBase64 = Buffer.from('mock audio').toString('base64');
+
+        const res = await request(app)
+          .post('/api/voice/process')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudioBase64,
+            mimeType: 'audio/mp3',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('transcription_gujarati');
+        expect(res.body).toHaveProperty('translation_english');
+        expect(res.body).toHaveProperty('intent');
+        expect(res.body).toHaveProperty('customer_name');
+        expect(res.body).toHaveProperty('name_confidence');
+        expect(res.body).toHaveProperty('amount');
+        expect(res.body).toHaveProperty('items');
+        expect(res.body).toHaveProperty('confidence');
+      });
     });
   });
 

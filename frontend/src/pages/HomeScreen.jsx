@@ -166,9 +166,13 @@ export default function HomeScreen() {
           const customerName = result.customer_name || 'ગ્રાહક (Unknown)';
           const amount = result.amount || 0;
           const phone = result.customer_phone || '';
+          const suggestedName = result.suggested_customer_name || null;
+          const nameConfidence = result.name_confidence || result.confidence || 'high';
 
           setParsedData({
             customerName,
+            suggestedName,
+            nameConfidence,
             amount,
             txType,
             phone,
@@ -468,6 +472,64 @@ export default function HomeScreen() {
             <div className="parsed-main-text">
               {parsedData.customerName}, ₹{parsedData.amount}
             </div>
+
+            {/* Quick-select tap options if a suggested match or low name confidence */}
+            {(parsedData.suggestedName || parsedData.nameConfidence === 'low' || parsedData.nameConfidence === 'medium') && (
+              <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', backgroundColor: 'rgba(240, 198, 116, 0.08)', borderRadius: '8px', border: '1px solid rgba(240, 198, 116, 0.25)' }}>
+                <div style={{ fontSize: '0.8rem', color: '#F0C674', marginBottom: '0.4rem', fontWeight: '500' }}>
+                  🎯 ગ્રાહકનું નામ પસંદ કરો / Select Customer Name:
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setParsedData({ ...parsedData, customerName: parsedData.customerName });
+                      setEditCustomerName(parsedData.customerName);
+                    }}
+                    style={{
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '6px',
+                      fontSize: '0.85rem',
+                      border: editCustomerName === parsedData.customerName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
+                      backgroundColor: editCustomerName === parsedData.customerName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
+                      color: '#F8FAFC',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.3rem'
+                    }}
+                  >
+                    {editCustomerName === parsedData.customerName && <Check size={14} color="#F0C674" />}
+                    <span>{parsedData.customerName}</span>
+                  </button>
+
+                  {parsedData.suggestedName && parsedData.suggestedName !== parsedData.customerName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setParsedData({ ...parsedData, customerName: parsedData.suggestedName });
+                        setEditCustomerName(parsedData.suggestedName);
+                      }}
+                      style={{
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: editCustomerName === parsedData.suggestedName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: editCustomerName === parsedData.suggestedName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
+                        color: '#F8FAFC',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem'
+                      }}
+                    >
+                      {editCustomerName === parsedData.suggestedName && <Check size={14} color="#F0C674" />}
+                      <span>{parsedData.suggestedName} (Existing)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {(!parsedData.phone || parsedData.phone === '0000000000') ? (
               <div
