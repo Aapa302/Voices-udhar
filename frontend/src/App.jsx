@@ -7,6 +7,7 @@ import Onboarding from './components/Onboarding';
 import HomeScreen from './pages/HomeScreen';
 import CustomersScreen from './pages/CustomersScreen';
 import CustomerHistoryScreen from './pages/CustomerHistoryScreen';
+import AlertsScreen from './pages/AlertsScreen';
 import SummaryScreen from './pages/SummaryScreen';
 import { Loader2, Sparkles } from 'lucide-react';
 
@@ -37,6 +38,14 @@ function AnimatedRoutes() {
           element={
             <PageWrapper>
               <CustomerHistoryScreen />
+            </PageWrapper>
+          }
+        />
+        <Route
+          path="/alerts"
+          element={
+            <PageWrapper>
+              <AlertsScreen />
             </PageWrapper>
           }
         />

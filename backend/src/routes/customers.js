@@ -6,6 +6,12 @@ const apiKeyAuth = require('../middleware/auth');
 // All customer endpoints require API key auth
 router.use(apiKeyAuth);
 
+// GET /api/customers/alerts — get pending udhaar alerts for authenticated shopkeeper
+router.get('/alerts', customerController.getCustomerAlerts);
+
+// GET /api/customers/alerts/:shopkeeperId — get pending udhaar alerts for shopkeeper
+router.get('/alerts/:shopkeeperId', customerController.getCustomerAlerts);
+
 // GET /api/customers/detail/:customerId — get single customer details
 router.get('/detail/:customerId', customerController.getSingleCustomer);
 

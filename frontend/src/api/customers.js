@@ -87,3 +87,23 @@ export async function createCustomer(customerData) {
   const data = await handleApiResponse(response, 'ગ્રાહક ઉમેરવામાં ભૂલ આવી / Failed to save customer');
   return data.data;
 }
+
+/**
+ * Get pending udhaar alerts categorized by high amount and long pending duration.
+ * @param {string} shopkeeperId
+ * @param {number} days - threshold number of days (default 15)
+ * @returns {Promise<Object>} { highAmount: [], longPending: [] }
+ */
+export async function getCustomerAlerts(shopkeeperId, days = 15) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/customers/alerts/${shopkeeperId}?days=${days}`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  const data = await handleApiResponse(response, 'અલર્ટ્સ મેળવવામાં નિષ્ફળ / Failed to fetch customer alerts');
+  return data || { highAmount: [], longPending: [] };
+}

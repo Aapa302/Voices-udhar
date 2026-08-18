@@ -182,8 +182,130 @@ const getSingleCustomer = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/customers/alerts or GET /api/customers/alerts/:shopkeeperId
+ * Fetch pending udhaar alerts categorized as highAmount and longPending.
+ *
+ * Query params:
+ *   - days: threshold number of days for long pending udhaar (default 15)
+ *   - limit: top max count for high amount list (default 10)
+ */
+const getCustomerAlerts = async (req, res) => {
+  try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
+    const { shopkeeperId } = req.params;
+    if (shopkeeperId && shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    const daysThreshold = parseInt(req.query.days, 10) || 15;
+    const highLimit = parseInt(req.query.limit, 10) || 10;
+
+    // Fetch all customers for this shopkeeper
+    const customersSnapshot = await db
+      .collection('customers')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .get();
+
+    const pendingCustomers = [];
+    customersSnapshot.forEach((doc) => {
+      const data = doc.data();
+      const totalUdhaar = Number(data.totalUdhaar) || 0;
+      if (totalUdhaar > 0) {
+        pendingCustomers.push({
+          ...data,
+          totalUdhaar,
+        });
+      }
+    });
+
+    if (pendingCustomers.length === 0) {
+      return res.status(200).json({
+        highAmount: [],
+        longPending: [],
+      });
+    }
+
+    // Fetch all transactions for this shopkeeper to determine last activity timestamp per customer
+    const txSnapshot = await db
+      .collection('transactions')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .get();
+
+    const latestTxMap = {};
+    txSnapshot.forEach((doc) => {
+      const tx = doc.data();
+      if (!tx.customerId || !tx.timestamp) return;
+
+      const txTime = new Date(tx.timestamp).getTime();
+      if (isNaN(txTime)) return;
+
+      if (!latestTxMap[tx.customerId] || txTime > latestTxMap[tx.customerId]) {
+        latestTxMap[tx.customerId] = txTime;
+      }
+    });
+
+    const nowMs = Date.now();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+    const enrichedCustomers = pendingCustomers.map((cust) => {
+      let lastActivityTime = latestTxMap[cust.customerId];
+
+      if (!lastActivityTime) {
+        const fallBackIso = cust.updatedAt || cust.createdAt;
+        lastActivityTime = fallBackIso ? new Date(fallBackIso).getTime() : nowMs;
+      }
+
+      if (isNaN(lastActivityTime)) {
+        lastActivityTime = nowMs;
+      }
+
+      const diffMs = Math.max(0, nowMs - lastActivityTime);
+      const daysSinceLastActivity = Math.floor(diffMs / MS_PER_DAY);
+
+      return {
+        ...cust,
+        lastActivityTimestamp: new Date(lastActivityTime).toISOString(),
+        daysSinceLastActivity,
+      };
+    });
+
+    // 1. highAmount: sorted by totalUdhaar descending (top highLimit)
+    const highAmount = [...enrichedCustomers]
+      .sort((a, b) => b.totalUdhaar - a.totalUdhaar)
+      .slice(0, highLimit);
+
+    // 2. longPending: customers whose last transaction was > daysThreshold days ago, sorted by oldest activity first (daysSinceLastActivity descending)
+    const longPending = enrichedCustomers
+      .filter((cust) => cust.daysSinceLastActivity >= daysThreshold)
+      .sort((a, b) => b.daysSinceLastActivity - a.daysSinceLastActivity);
+
+    return res.status(200).json({
+      highAmount,
+      longPending,
+    });
+  } catch (error) {
+    console.error('Error fetching customer alerts:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Failed to fetch customer alerts',
+    });
+  }
+};
+
 module.exports = {
   addOrUpdateCustomer,
   getCustomersByShopkeeper,
   getSingleCustomer,
+  getCustomerAlerts,
 };

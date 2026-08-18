@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { processVoiceAudio, processVoiceQuery } from '../api/voice';
-import { getCustomers, createCustomer } from '../api/customers';
+import { getCustomers, createCustomer, getCustomerAlerts } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
 import BillModal from '../components/BillModal';
@@ -43,11 +44,32 @@ const getActionLabel = (txType) => {
 };
 
 export default function HomeScreen() {
+  const navigate = useNavigate();
   const [screenState, setScreenState] = useState(SCREEN_STATE.IDLE);
   const [errorMessage, setErrorMessage] = useState('');
   const [parsedData, setParsedData] = useState(null);
   const [generatedBill, setGeneratedBill] = useState(null);
   const [showBillModal, setShowBillModal] = useState(false);
+
+  // Pending udhaar alerts state for Home screen banner
+  const [pendingAlertCount, setPendingAlertCount] = useState(0);
+  const [isAlertBannerDismissed, setIsAlertBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    const fetchPendingAlertsCount = async () => {
+      const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
+      if (!shopkeeperId) return;
+      try {
+        const alertsData = await getCustomerAlerts(shopkeeperId, 15);
+        const count = (alertsData.longPending && alertsData.longPending.length) || 0;
+        setPendingAlertCount(count);
+      } catch (err) {
+        console.error('Failed to fetch alerts count for banner:', err);
+      }
+    };
+
+    fetchPendingAlertsCount();
+  }, []);
 
   // Query mode state
   const [isQueryMode, setIsQueryMode] = useState(false);
@@ -446,6 +468,65 @@ export default function HomeScreen() {
 
   return (
     <div className="main-content">
+      {/* URGENT PENDING UDHAAR ALERT BANNER */}
+      {!isAlertBannerDismissed && pendingAlertCount > 0 && screenState === SCREEN_STATE.IDLE && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          onClick={() => navigate('/alerts')}
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.75rem 0.9rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            boxShadow: '0 4px 15px rgba(239, 68, 68, 0.15)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1 }}>
+            <AlertTriangle size={20} color="#FCA5A5" style={{ flexShrink: 0 }} />
+            <div style={{ fontSize: '0.9rem', color: '#F8FAFC', fontWeight: '700' }}>
+              ⚠️ {pendingAlertCount} ગ્રાહકોનું ઉધાર 15 દિવસથી બાકી છે
+              <span style={{ display: 'block', fontSize: '0.75rem', color: '#FDA4AF', fontWeight: '500' }}>
+                {pendingAlertCount} {pendingAlertCount === 1 ? 'customer has' : 'customers have'} udhaar pending for 15+ days
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <ChevronRight size={18} color="#FCA5A5" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAlertBannerDismissed(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#94A3B8',
+                padding: '0.3rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '6px',
+              }}
+              title="Dismiss banner"
+              aria-label="Dismiss banner"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* BILL PREVIEW MODAL */}
       {showBillModal && generatedBill && (
         <BillModal billData={generatedBill} onClose={handleCloseBillModal} />
