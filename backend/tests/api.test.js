@@ -226,6 +226,85 @@ describe('Voice Udhar API Integration Tests', () => {
 
       expect(forbiddenRes.status).toBe(403);
     });
+
+    it('GET /api/customers/alerts/:shopkeeperId should return highAmount and longPending categorized lists', async () => {
+      const now = Date.now();
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+      // Customer 1: High amount (1000), recent activity (2 days ago)
+      const c1Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'High Amount Recent',
+          phone: '9876543210',
+          totalUdhaar: 1000,
+        });
+      const c1Id = c1Res.body.data.customerId;
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: c1Id,
+          type: 'udhaar_add',
+          amount: 1000,
+          timestamp: new Date(now - 2 * MS_PER_DAY).toISOString(),
+        });
+
+      // Customer 2: Moderate amount (500), long pending activity (20 days ago)
+      const c2Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Long Pending Customer',
+          phone: '9123456789',
+          totalUdhaar: 500,
+        });
+      const c2Id = c2Res.body.data.customerId;
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: c2Id,
+          type: 'udhaar_add',
+          amount: 500,
+          timestamp: new Date(now - 20 * MS_PER_DAY).toISOString(),
+        });
+
+      // Customer 3: Zero balance customer (should not be included in alerts)
+      await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Zero Balance',
+          phone: '9000000000',
+          totalUdhaar: 0,
+        });
+
+      const res = await request(app)
+        .get(`/api/customers/alerts/${shopkeeperId}?days=15`)
+        .set('x-api-key', apiKey);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('highAmount');
+      expect(res.body).toHaveProperty('longPending');
+
+      // highAmount should have 2 customers sorted by amount descending
+      expect(res.body.highAmount.length).toBe(2);
+      expect(res.body.highAmount[0].name).toBe('High Amount Recent');
+      expect(res.body.highAmount[1].name).toBe('Long Pending Customer');
+
+      // longPending should have only Customer 2 (>= 15 days)
+      expect(res.body.longPending.length).toBe(1);
+      expect(res.body.longPending[0].name).toBe('Long Pending Customer');
+      expect(res.body.longPending[0].daysSinceLastActivity).toBeGreaterThanOrEqual(15);
+
+      // Verify tenant isolation
+      const forbiddenRes = await request(app)
+        .get(`/api/customers/alerts/${otherShopkeeperId}`)
+        .set('x-api-key', apiKey);
+      expect(forbiddenRes.status).toBe(403);
+    });
   });
 
   describe('Transactions API', () => {
