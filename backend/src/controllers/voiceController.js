@@ -111,6 +111,39 @@ function findSuggestedCustomerName(extractedName, existingCustomerNames) {
   return bestMatch;
 }
 
+// In-memory cache for customer names per shopkeeper (60 second TTL)
+const customerCache = new Map();
+const CUSTOMER_CACHE_TTL_MS = 60000;
+
+/**
+ * Helper to fetch customer names with 60s in-memory caching and 50 record limit.
+ */
+async function getCachedCustomerNames(shopkeeperId) {
+  if (!shopkeeperId || process.env.USE_MOCK_DB === 'true') {
+    return [];
+  }
+
+  const cached = customerCache.get(shopkeeperId);
+  if (cached && Date.now() - cached.timestamp < CUSTOMER_CACHE_TTL_MS) {
+    return cached.names;
+  }
+
+  try {
+    const snapshot = await db
+      .collection('customers')
+      .where('shopkeeperId', '==', shopkeeperId)
+      .limit(50)
+      .get();
+
+    const names = snapshot.docs.map((doc) => doc.data().name).filter(Boolean);
+    customerCache.set(shopkeeperId, { names, timestamp: Date.now() });
+    return names;
+  } catch (dbErr) {
+    console.warn('Failed to fetch existing customers for voice context:', dbErr.message);
+    return [];
+  }
+}
+
 /**
  * POST /api/voice/process
  * Accepts audio in base64 in request body.
@@ -118,6 +151,7 @@ function findSuggestedCustomerName(extractedName, existingCustomerNames) {
  * Sends audio to Gemini API using native audio input capability.
  */
 const processVoice = async (req, res) => {
+  const reqStart = Date.now();
   try {
     const { audioData, audioBase64, mimeType = 'audio/mp3' } = req.body;
     const base64Content = audioBase64 || audioData;
@@ -129,22 +163,11 @@ const processVoice = async (req, res) => {
       });
     }
 
-    // Fetch existing customer names for shopkeeper context
-    let existingCustomerNames = [];
+    // Fetch existing customer names with caching & limit 50
+    const firestoreStart = Date.now();
     const shopkeeperId = req.shopkeeper ? req.shopkeeper.shopkeeperId : null;
-
-    if (shopkeeperId && process.env.USE_MOCK_DB !== 'true') {
-      try {
-        const snapshot = await db.collection('customers')
-          .where('shopkeeperId', '==', shopkeeperId)
-          .get();
-        existingCustomerNames = snapshot.docs
-          .map((doc) => doc.data().name)
-          .filter(Boolean);
-      } catch (dbErr) {
-        console.warn('Failed to fetch existing customers for voice context:', dbErr.message);
-      }
-    }
+    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId);
+    const firestoreFetchMs = Date.now() - firestoreStart;
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -220,9 +243,11 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
       },
     };
 
+    const geminiStart = Date.now();
     const result = await generateWithFallback(genAI, async (model) => {
       return await model.generateContent([prompt, audioPart]);
     });
+    const geminiCallMs = Date.now() - geminiStart;
     const responseText = result.response.text();
 
     /**
@@ -291,6 +316,9 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
     if (!parsedResult.name_confidence) {
       parsedResult.name_confidence = parsedResult.customer_name ? 'medium' : 'low';
     }
+
+    const totalMs = Date.now() - reqStart;
+    console.log(`[Voice Timing] total: ${totalMs}ms | firestoreFetch: ${firestoreFetchMs}ms | geminiCall: ${geminiCallMs}ms`);
 
     return res.status(200).json(parsedResult);
   } catch (error) {

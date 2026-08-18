@@ -186,14 +186,17 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
 
   for (let i = 0; i < candidates.length; i++) {
     const modelName = candidates[i];
+    const attemptStart = Date.now();
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await generateContentFn(model);
-      console.log(`[Gemini] Successfully executed request using model: ${modelName}`);
+      const attemptDuration = Date.now() - attemptStart;
+      console.log(`[Gemini] Successfully executed request using model: ${modelName} (attempt ${i + 1}, took ${attemptDuration}ms)`);
       return result;
     } catch (error) {
+      const attemptDuration = Date.now() - attemptStart;
       lastError = error;
-      console.warn(`[Gemini] Model ${modelName} failed (${error.message || error})`);
+      console.warn(`[Gemini] Model ${modelName} failed on attempt ${i + 1} after ${attemptDuration}ms (${error.message || error})`);
 
       if (isNonTransientError(error)) {
         console.warn(`[Gemini] Non-transient error encountered on ${modelName}. Aborting model retries.`);
