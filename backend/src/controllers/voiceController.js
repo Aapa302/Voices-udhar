@@ -1,5 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { getGeminiModelName } = require('../config/geminiModelResolver');
+const { generateWithFallback } = require('../config/geminiModelResolver');
 
 /**
  * POST /api/voice/process
@@ -41,8 +41,6 @@ const processVoice = async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = await getGeminiModelName();
-    const model = genAI.getGenerativeModel({ model: modelName });
 
     const prompt = `
 You are an expert Gujarati speech recognition and intent extraction assistant for shopkeeper billing in India.
@@ -80,7 +78,9 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
       },
     };
 
-    const result = await model.generateContent([prompt, audioPart]);
+    const result = await generateWithFallback(genAI, async (model) => {
+      return await model.generateContent([prompt, audioPart]);
+    });
     const responseText = result.response.text();
 
     /**
