@@ -139,29 +139,37 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
     }
 
     if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
-      const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
-      const serviceAccount = JSON.parse(fileContent);
+      let parsedJson;
+      try {
+        const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+        parsedJson = JSON.parse(fileContent);
+      } catch (parseErr) {
+        throw new Error(`Failed to parse Firebase service account JSON file at "${serviceAccountPath}": ${parseErr.message}`);
+      }
 
-      const projectId = serviceAccount.project_id || serviceAccount.projectId;
-      const clientEmail = serviceAccount.client_email || serviceAccount.clientEmail;
-      const privateKey = serviceAccount.private_key || serviceAccount.privateKey;
+      if (parsedJson.private_key && typeof parsedJson.private_key === 'string') {
+        parsedJson.private_key = parsedJson.private_key.replace(/\\n/g, '\n');
+      }
+      if (parsedJson.privateKey && typeof parsedJson.privateKey === 'string') {
+        parsedJson.privateKey = parsedJson.privateKey.replace(/\\n/g, '\n');
+      }
+
+      const projectId = parsedJson.project_id || parsedJson.projectId;
 
       admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId,
-          clientEmail,
-          privateKey: privateKey ? privateKey.replace(/\\n/g, '\n') : undefined,
-        }),
-        projectId,
+        credential: admin.credential.cert(parsedJson),
+        projectId: projectId,
       });
 
-      console.log(`[Firebase] Initialized using service account file at "${serviceAccountPath}" for project "${projectId}".`);
-    } else if (process.env.FIREBASE_PROJECT_ID) {
+      console.log(`[Firebase] Initialized using service account file at ${serviceAccountPath}, project: ${projectId}`);
+    } else if (
+      process.env.FIREBASE_PROJECT_ID &&
+      process.env.FIREBASE_CLIENT_EMAIL &&
+      process.env.FIREBASE_PRIVATE_KEY
+    ) {
       const projectId = process.env.FIREBASE_PROJECT_ID;
       const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY
-        ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-        : undefined;
+      const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
 
       admin.initializeApp({
         credential: admin.credential.cert({
@@ -169,13 +177,26 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
           clientEmail,
           privateKey,
         }),
-        projectId,
+        projectId: projectId,
       });
 
-      console.log(`[Firebase] Initialized using individual environment variables for project "${projectId}".`);
+      console.log(`[Firebase] Initialized using individual env vars, project: ${projectId}`);
     } else {
-      admin.initializeApp();
-      console.log('[Firebase] Initialized using default credentials.');
+      const missing = [];
+      if (!process.env.FIREBASE_SERVICE_ACCOUNT_PATH && !process.env.FIREBASE_PROJECT_ID) {
+        missing.push('FIREBASE_PROJECT_ID (or valid FIREBASE_SERVICE_ACCOUNT_PATH file)');
+      }
+      if (!process.env.FIREBASE_SERVICE_ACCOUNT_PATH && !process.env.FIREBASE_CLIENT_EMAIL) {
+        missing.push('FIREBASE_CLIENT_EMAIL');
+      }
+      if (!process.env.FIREBASE_SERVICE_ACCOUNT_PATH && !process.env.FIREBASE_PRIVATE_KEY) {
+        missing.push('FIREBASE_PRIVATE_KEY');
+      }
+      if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH && !fs.existsSync(serviceAccountPath)) {
+        missing.push(`File at FIREBASE_SERVICE_ACCOUNT_PATH ("${serviceAccountPath}") does not exist`);
+      }
+
+      throw new Error(`Firebase credentials are missing or invalid. Details: ${missing.join('; ')}`);
     }
   }
 

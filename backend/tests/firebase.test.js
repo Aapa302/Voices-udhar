@@ -49,14 +49,37 @@ describe('Firebase Config Initialization', () => {
       const { db, admin: fbAdmin } = require('../src/config/firebase');
 
       expect(certMock).toHaveBeenCalledWith({
-        projectId: 'test-file-project',
-        clientEmail: 'test@test-file-project.iam.gserviceaccount.com',
-        privateKey: '-----BEGIN PRIVATE KEY-----\nFAKEKEY\n-----END PRIVATE KEY-----\n',
+        project_id: 'test-file-project',
+        client_email: 'test@test-file-project.iam.gserviceaccount.com',
+        private_key: '-----BEGIN PRIVATE KEY-----\nFAKEKEY\n-----END PRIVATE KEY-----\n',
       });
       expect(initializeAppMock).toHaveBeenCalledTimes(1);
       const options = initializeAppMock.mock.calls[0][0];
 
       expect(options.projectId).toBe('test-file-project');
+    } finally {
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+    }
+  });
+
+  test('should throw error if FIREBASE_SERVICE_ACCOUNT_PATH JSON is invalid', () => {
+    const tempFilePath = path.join(__dirname, 'temp-invalid.json');
+    fs.writeFileSync(tempFilePath, 'INVALID_JSON{');
+
+    try {
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH = tempFilePath;
+
+      const admin = require('firebase-admin');
+      Object.defineProperty(admin, 'apps', {
+        get: () => [],
+        configurable: true,
+      });
+
+      expect(() => {
+        require('../src/config/firebase');
+      }).toThrow(/Failed to parse Firebase service account JSON file/);
     } finally {
       if (fs.existsSync(tempFilePath)) {
         fs.unlinkSync(tempFilePath);
@@ -93,5 +116,17 @@ describe('Firebase Config Initialization', () => {
     const options = initializeAppMock.mock.calls[0][0];
 
     expect(options.projectId).toBe('test-env-project');
+  });
+
+  test('should throw error when neither service account file nor individual env vars are set', () => {
+    const admin = require('firebase-admin');
+    Object.defineProperty(admin, 'apps', {
+      get: () => [],
+      configurable: true,
+    });
+
+    expect(() => {
+      require('../src/config/firebase');
+    }).toThrow(/Firebase credentials are missing or invalid/);
   });
 });
