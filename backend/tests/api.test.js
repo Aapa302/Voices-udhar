@@ -421,6 +421,90 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.body).toHaveProperty('confidence');
       });
     });
+
+    describe('POST /api/voice/query', () => {
+      beforeEach(async () => {
+        const skRes = await request(app)
+          .post('/api/shopkeepers')
+          .send({
+            shopName: 'Test Shop',
+            phone: '1112223333',
+          });
+        shopkeeperId = skRes.body.data.shopkeeperId;
+        apiKey = skRes.body.data.apiKey;
+
+        await request(app)
+          .post('/api/customers')
+          .set('x-api-key', apiKey)
+          .send({
+            shopkeeperId,
+            name: 'Ramesh Kumar',
+            phone: '9988776655',
+            totalUdhaar: 500,
+          });
+      });
+
+      it('should return 400 if audio data is missing', async () => {
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({});
+
+        expect(res.status).toBe(400);
+      });
+
+      it('should handle customer_balance query and return natural spoken Gujarati & English response', async () => {
+        const dummyAudioBase64 = Buffer.from('Ramesh balance query').toString('base64');
+
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudioBase64,
+            mockQueryType: 'customer_balance',
+            mockCustomerName: 'Ramesh Kumar',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.isQuery).toBe(true);
+        expect(res.body.queryType).toBe('customer_balance');
+        expect(res.body.answerText).toContain('500');
+        expect(res.body.answerTextEnglish).toContain('500');
+      });
+
+      it('should handle daily_summary query and return total summary response', async () => {
+        const dummyAudioBase64 = Buffer.from('summary query').toString('base64');
+
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudioBase64,
+            mockQueryType: 'daily_summary',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.isQuery).toBe(true);
+        expect(res.body.queryType).toBe('daily_summary');
+        expect(res.body.answerText).toContain('આજનું કુલ વેચાણ');
+      });
+
+      it('should return redirection warning if classified as transaction', async () => {
+        const dummyAudioBase64 = Buffer.from('mock_transaction').toString('base64');
+
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudioBase64,
+            isMockTransaction: true,
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.isQuery).toBe(false);
+        expect(res.body.message).toContain('ટ્રાન્ઝેક્શન મોડનો ઉપયોગ કરો');
+      });
+    });
   });
 
   describe('Bill Generation API', () => {
