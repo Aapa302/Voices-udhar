@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { resolveGeminiModel } = require('./config/geminiModelResolver');
 
 /**
  * Validates required environment variables on startup.
@@ -58,6 +59,13 @@ const app = require('./app');
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Voice Udhar Backend running on port ${PORT}`);
+  if (process.env.NODE_ENV !== 'test') {
+    try {
+      await resolveGeminiModel();
+    } catch (err) {
+      console.warn('[Gemini] Startup model auto-detection error:', err.message);
+    }
+  }
 });
