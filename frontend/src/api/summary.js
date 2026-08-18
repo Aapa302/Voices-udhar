@@ -47,3 +47,23 @@ export async function getDailySummaryApi(shopkeeperId) {
 
   return await handleApiResponse(response, 'તારણ મેળવવામાં નિષ્ફળ / Failed to fetch daily summary');
 }
+
+/**
+ * Get summary trend data (weekly or monthly) for a shopkeeper.
+ * GET /api/summary/trends/:shopkeeperId?period=week|month
+ * @param {string} shopkeeperId
+ * @param {string} period - 'week' or 'month'
+ * @returns {Promise<Object>} { period, dataPoints: [...] }
+ */
+export async function getSummaryTrendsApi(shopkeeperId, period = 'week') {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/summary/trends/${shopkeeperId}?period=${period}`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  return await handleApiResponse(response, 'ટ્રેન્ડ મેળવવામાં નિષ્ફળ / Failed to fetch summary trends');
+}
