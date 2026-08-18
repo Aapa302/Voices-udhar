@@ -330,8 +330,289 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
   }
 };
 
+/**
+ * Helper to query customer balance for query endpoint.
+ */
+async function handleCustomerBalanceQuery(shopkeeperId, customerName) {
+  let customerDisplayName = customerName || 'ગ્રાહક';
+  let balance = 0;
+  let customerFound = false;
+
+  if (shopkeeperId) {
+    try {
+      const snapshot = await db.collection('customers')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      const customers = [];
+      snapshot.forEach((doc) => customers.push(doc.data()));
+
+      if (customerName && customers.length > 0) {
+        const normTarget = normalizeGujaratiPhonetics(customerName);
+        let bestMatch = null;
+        let minDist = Infinity;
+
+        for (const cust of customers) {
+          if (!cust.name) continue;
+          const normName = normalizeGujaratiPhonetics(cust.name);
+          if (normTarget && normTarget === normName) {
+            bestMatch = cust;
+            minDist = 0;
+            break;
+          }
+          const dist = levenshteinDistance(normTarget, normName);
+          if (dist < minDist) {
+            minDist = dist;
+            bestMatch = cust;
+          }
+        }
+
+        if (bestMatch && (minDist <= 3 || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+          customerDisplayName = bestMatch.name;
+          balance = Number(bestMatch.totalUdhaar) || 0;
+          customerFound = true;
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching customer balance for query:', err.message);
+    }
+  }
+
+  const answerText = customerFound
+    ? `${customerDisplayName}નું ${balance} રૂપિયા ઉધાર બાકી છે.`
+    : customerName
+      ? `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`
+      : `ગ્રાહકનું નામ સ્પષ્ટ નથી.`;
+
+  const answerTextEnglish = customerFound
+    ? `${customerDisplayName}'s pending balance is ${balance} rupees.`
+    : customerName
+      ? `No customer named ${customerName} was found.`
+      : `Customer name was not specified.`;
+
+  return { customerName: customerDisplayName, balance, answerText, answerTextEnglish };
+}
+
+/**
+ * Helper to query daily summary for query endpoint.
+ */
+async function handleDailySummaryQuery(shopkeeperId) {
+  let totalSales = 0;
+  let totalNewUdhaar = 0;
+  let totalUdhaarCollected = 0;
+  let transactionCount = 0;
+
+  if (shopkeeperId) {
+    try {
+      const now = new Date();
+      const istDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+      const startOfTodayIST = new Date(`${istDateStr}T00:00:00.000+05:30`);
+      const endOfTodayIST = new Date(startOfTodayIST.getTime() + 24 * 60 * 60 * 1000);
+
+      const snapshot = await db.collection('transactions')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .where('timestamp', '>=', startOfTodayIST.toISOString())
+        .where('timestamp', '<', endOfTodayIST.toISOString())
+        .get();
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        transactionCount++;
+        const amount = Number(data.amount) || 0;
+        if (data.type === 'sale') totalSales += amount;
+        else if (data.type === 'udhaar_add') totalNewUdhaar += amount;
+        else if (data.type === 'udhaar_paid') totalUdhaarCollected += amount;
+      });
+    } catch (err) {
+      console.warn('Error fetching daily summary for query:', err.message);
+    }
+  }
+
+  const answerText = `આજનું કુલ વેચાણ ${totalSales} રૂપિયા છે, નવું ઉધાર ${totalNewUdhaar} રૂપિયા છે, અને ઉધાર વસૂલી ${totalUdhaarCollected} રૂપિયા છે.`;
+  const answerTextEnglish = `Today's total sale is ${totalSales} rupees, new udhaar is ${totalNewUdhaar} rupees, and udhaar collected is ${totalUdhaarCollected} rupees.`;
+
+  return { totalSales, totalNewUdhaar, totalUdhaarCollected, transactionCount, answerText, answerTextEnglish };
+}
+
+/**
+ * POST /api/voice/query
+ * Accepts audio in base64.
+ * Classifies query vs transaction and generates natural spoken answer in Gujarati and English.
+ */
+const processVoiceQuery = async (req, res) => {
+  try {
+    const { audioData, audioBase64, mimeType = 'audio/mp3', mockQueryType, mockCustomerName, isMockTransaction } = req.body;
+    const base64Content = audioBase64 || audioData;
+
+    if (!base64Content) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'audioBase64 or audioData (base64 encoded audio) is required',
+      });
+    }
+
+    const shopkeeperId = req.shopkeeper ? req.shopkeeper.shopkeeperId : null;
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    // Handle mock environment for testing or missing API key
+    if (!apiKey || process.env.NODE_ENV === 'test' || process.env.USE_MOCK_GEMINI === 'true') {
+      let decodedAudio = '';
+      try {
+        decodedAudio = Buffer.from(base64Content, 'base64').toString('utf8');
+      } catch (e) {
+        // ignore
+      }
+
+      const isTx = isMockTransaction || decodedAudio.includes('mock_transaction');
+      if (isTx) {
+        return res.status(200).json({
+          isQuery: false,
+          message: 'આ ટ્રાન્ઝેક્શન છે. મહેરબાની કરીને ટ્રાન્ઝેક્શન મોડનો ઉપયોગ કરો. / This audio is a transaction, please use transaction recording mode.',
+        });
+      }
+
+      const qType = mockQueryType || (decodedAudio.includes('summary') ? 'daily_summary' : decodedAudio.includes('general') ? 'general' : 'customer_balance');
+
+      if (qType === 'customer_balance') {
+        const custName = mockCustomerName || 'Ramesh';
+        const result = await handleCustomerBalanceQuery(shopkeeperId, custName);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'customer_balance',
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+      } else if (qType === 'daily_summary') {
+        const result = await handleDailySummaryQuery(shopkeeperId);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'daily_summary',
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+      } else {
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'general',
+          answerText: 'હું તમારી સહાય માટે તૈયાર છું. તમે ગ્રાહકના ઉધાર અથવા આજના વેચાણ વિશે પૂછી શકો છો.',
+          answerTextEnglish: 'I am ready to help you. You can ask about customer udhaar or today\'s sales.',
+        });
+      }
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId);
+    const customerContextListStr = existingCustomerNames.length > 0 ? existingCustomerNames.join(', ') : 'None';
+
+    const prompt = `
+You are an expert Gujarati speech recognition and voice query assistant for small Indian shopkeepers.
+Analyze the provided audio recording.
+
+Task:
+1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, daily sales, or general questions) OR making a TRANSACTION instruction (recording sale/udhaar).
+   - "classification": "QUERY" or "TRANSACTION"
+2. If classification is "QUERY":
+   - "queryType": "customer_balance" (asking about a specific customer's udhaar/balance) | "daily_summary" (asking about today's sales, totals, or udhaar given) | "general" (any other question)
+   - "customer_name": Extracted customer name if queryType is "customer_balance" (string or null).
+     - Existing Customer List for this shop: [ ${customerContextListStr} ]
+     - Prefer matching spoken customer name to existing list if phonetically close.
+   - "answerText": If queryType is "general", provide a clear spoken response in Gujarati script. For customer_balance and daily_summary, this can be null.
+   - "answerTextEnglish": English translation of answerText.
+3. If classification is "TRANSACTION":
+   - queryType, customer_name, answerText, answerTextEnglish should be null.
+
+Return ONLY a valid JSON object without markdown formatting:
+{
+  "classification": "QUERY" | "TRANSACTION",
+  "queryType": "customer_balance" | "daily_summary" | "general" | null,
+  "customer_name": "..." | null,
+  "answerText": "..." | null,
+  "answerTextEnglish": "..." | null
+}
+`;
+
+    const audioPart = {
+      inlineData: {
+        data: base64Content,
+        mimeType: mimeType,
+      },
+    };
+
+    const result = await generateWithFallback(genAI, async (model) => {
+      return await model.generateContent([prompt, audioPart]);
+    });
+
+    const responseText = result.response.text();
+
+    const extractJson = (rawText) => {
+      if (!rawText || typeof rawText !== 'string') return null;
+      const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch (e) {}
+      const jsonRegex = /\{[\s\S]*\}|\[[\s\S]*\]/;
+      const match = rawText.match(jsonRegex);
+      if (match) {
+        try {
+          return JSON.parse(match[0]);
+        } catch (e) {}
+      }
+      return null;
+    };
+
+    const parsedResult = extractJson(responseText) || {
+      classification: 'QUERY',
+      queryType: 'general',
+      customer_name: null,
+      answerText: 'તમારો પ્રશ્ન સમજી શકાયો નથી, કૃપા કરીને ફરી પૂછો.',
+      answerTextEnglish: 'Could not understand your question, please ask again.',
+    };
+
+    if (parsedResult.classification === 'TRANSACTION') {
+      return res.status(200).json({
+        isQuery: false,
+        message: 'આ ટ્રાન્ઝેક્શન છે. મહેરબાની કરીને ટ્રાન્ઝેક્શન મોડનો ઉપયોગ કરો. / This audio is a transaction, please use transaction recording mode.',
+      });
+    }
+
+    const queryType = parsedResult.queryType || 'general';
+
+    if (queryType === 'customer_balance') {
+      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name);
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'customer_balance',
+        answerText: balanceResult.answerText,
+        answerTextEnglish: balanceResult.answerTextEnglish,
+      });
+    } else if (queryType === 'daily_summary') {
+      const summaryResult = await handleDailySummaryQuery(shopkeeperId);
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'daily_summary',
+        answerText: summaryResult.answerText,
+        answerTextEnglish: summaryResult.answerTextEnglish,
+      });
+    } else {
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'general',
+        answerText: parsedResult.answerText || 'હું તમારી સહાય માટે તૈયાર છું.',
+        answerTextEnglish: parsedResult.answerTextEnglish || 'I am ready to help you.',
+      });
+    }
+  } catch (error) {
+    console.error('Error processing voice query:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   processVoice,
+  processVoiceQuery,
   levenshteinDistance,
   normalizeGujaratiPhonetics,
   findSuggestedCustomerName,

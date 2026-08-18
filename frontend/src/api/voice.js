@@ -52,3 +52,27 @@ export async function processVoiceAudio(audioBase64, mimeType = 'audio/webm') {
 
   return await handleApiResponse(response, 'અવાજ પ્રક્રિયા કરવામાં નિષ્ફળ / Voice processing failed');
 }
+
+/**
+ * Send base64 audio to POST /api/voice/query for AI voice questions.
+ * @param {string} audioBase64 - Base64 encoded audio string
+ * @param {string} mimeType - Audio mime type (e.g. 'audio/webm' or 'audio/mp3')
+ * @returns {Promise<Object>} AI query response
+ */
+export async function processVoiceQuery(audioBase64, mimeType = 'audio/webm') {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/voice/query`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+    },
+    body: JSON.stringify({
+      audioBase64,
+      mimeType,
+    }),
+  });
+
+  return await handleApiResponse(response, 'પ્રશ્ન પ્રક્રિયા કરવામાં નિષ્ફળ / Question processing failed');
+}

@@ -9,4 +9,7 @@ router.use(apiKeyAuth);
 // POST /api/voice/process — process base64 audio with Gemini API
 router.post('/process', voiceController.processVoice);
 
+// POST /api/voice/query — process base64 audio queries with Gemini API
+router.post('/query', voiceController.processVoiceQuery);
+
 module.exports = router;
