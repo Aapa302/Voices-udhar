@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getGeminiModelName } = require('../config/geminiModelResolver');
 
 /**
  * POST /api/voice/process
@@ -40,7 +41,8 @@ const processVoice = async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const modelName = await getGeminiModelName();
+    const model = genAI.getGenerativeModel({ model: modelName });
 
     const prompt = `
 You are an expert Gujarati speech recognition and intent extraction assistant for shopkeeper billing in India.
