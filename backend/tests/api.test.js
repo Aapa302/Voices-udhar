@@ -594,5 +594,34 @@ describe('Voice Udhar API Integration Tests', () => {
         transactionCount: 3,
       });
     });
+
+    it('GET /api/summary/trends/:shopkeeperId should return weekly and monthly trends with 7 and 30 data points', async () => {
+      const now = new Date().toISOString();
+
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({ shopkeeperId, customerId, type: 'sale', amount: 500, timestamp: now });
+
+      // Week trends
+      const weekRes = await request(app)
+        .get(`/api/summary/trends/${shopkeeperId}?period=week`)
+        .set('x-api-key', apiKey);
+
+      expect(weekRes.status).toBe(200);
+      expect(weekRes.body.period).toBe('week');
+      expect(Array.isArray(weekRes.body.dataPoints)).toBe(true);
+      expect(weekRes.body.dataPoints.length).toBe(7);
+
+      // Month trends
+      const monthRes = await request(app)
+        .get(`/api/summary/trends/${shopkeeperId}?period=month`)
+        .set('x-api-key', apiKey);
+
+      expect(monthRes.status).toBe(200);
+      expect(monthRes.body.period).toBe('month');
+      expect(Array.isArray(monthRes.body.dataPoints)).toBe(true);
+      expect(monthRes.body.dataPoints.length).toBe(30);
+    });
   });
 });
