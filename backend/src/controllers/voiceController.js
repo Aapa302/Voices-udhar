@@ -185,6 +185,7 @@ const processVoice = async (req, res) => {
           amount: 50,
           items: ['sugar', 'tea'],
           confidence: 'high',
+          detectedLanguage: 'gujarati',
         });
       }
       return res.status(500).json({
@@ -200,18 +201,21 @@ const processVoice = async (req, res) => {
       : 'None yet';
 
     const prompt = `
-You are an expert Gujarati speech recognition and intent extraction assistant for small Indian shopkeepers.
-Analyze the provided audio recording. Note that speech is spoken in casual, spoken, informal Gujarati from daily shop interactions, including regional dialect pronunciation variations.
+You are an expert multilingual speech recognition and intent extraction assistant for Indian shopkeepers.
+Analyze the provided audio recording. Note that the speaker may speak in Gujarati, Hindi, English, or any mix of these three languages (very common in Indian shopkeeper speech — e.g., mixing English numbers with Gujarati sentence structure, or Hindi words within a Gujarati sentence). Auto-detect the language(s) used and transcribe accurately regardless of which language or mix is used.
 
-CRITICAL INSTRUCTIONS FOR NAME RECOGNITION:
-1. Pay special attention to spoken Gujarati names.
-2. Note that in spoken Gujarati audio, similar-sounding consonant pairs are frequently confused (e.g. બ/ભ, ક/ખ, ગ/ઘ, ડ/ઢ, પ/ફ, ત/થ, ચ/છ, ટ/ઠ, જ/ઝ). Consider these phonetically commonly confused sounds when transcribing names.
-3. Existing Customer List for this shop: [ ${customerContextListStr} ]
+CRITICAL INSTRUCTIONS:
+1. MULTI-LANGUAGE AUDIO & NUMBER PARSING:
+   - Understand numbers and amounts accurately whether spoken in Gujarati (e.g., "પાંચસો"), Hindi (e.g., "paanch sau", "पांच सौ"), or English (e.g., "five hundred") — all should parse correctly to 500.
+   - Extract customer names accurately even if spoken with English pronunciation, Hindi accent, or regional spelling influence.
+2. CONSONANT SOUND VARIATIONS:
+   - Note that in spoken speech, similar-sounding consonant pairs are frequently confused (e.g. બ/ભ, ક/ખ, ગ/ઘ, ડ/ઢ, પ/ફ, ત/થ, ચ/છ, ટ/ઠ, જ/ઝ).
+   - Existing Customer List for this shop: [ ${customerContextListStr} ]
    - If the transcribed spoken name is phonetically close to any name in this existing customer list, prefer matching to the existing name from the list.
 
 Task:
-1. Transcribe the Gujarati speech accurately in Gujarati script (transcription_gujarati).
-2. Translate the Gujarati transcription into English (translation_english).
+1. Transcribe the spoken audio accurately in Gujarati script or relevant mixed text (transcription_gujarati).
+2. Translate the transcription into English (translation_english).
 3. Identify the primary intent (intent):
    - "add_udhaar": Customer bought items on credit (owes money).
    - "mark_paid": Customer paid back credit/udhaar.
@@ -221,7 +225,8 @@ Task:
 5. Assess name confidence specifically (name_confidence): "high", "medium", or "low".
 6. Extract total amount in rupees (amount) - number or 0.
 7. Extract list of items mentioned (items) - array of strings or empty array.
-8. Assess overall confidence score (confidence): "high", "medium", or "low".
+8. Detect the primary language used (detectedLanguage): "gujarati", "hindi", "english", or "mixed".
+9. Assess overall confidence score (confidence): "high", "medium", or "low".
 
 Return ONLY a valid JSON object without any Markdown formatting or code block markers:
 {
@@ -232,6 +237,7 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
   "name_confidence": "high" | "medium" | "low",
   "amount": 0,
   "items": ["..."],
+  "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed",
   "confidence": "high" | "medium" | "low"
 }
 `;
@@ -305,8 +311,13 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
         name_confidence: 'low',
         amount: 0,
         items: [],
+        detectedLanguage: 'gujarati',
         confidence: 'low',
       };
+    }
+
+    if (!parsedResult.detectedLanguage) {
+      parsedResult.detectedLanguage = 'gujarati';
     }
 
     // Run generic fuzzy matching against existing customer list
@@ -505,8 +516,8 @@ const processVoiceQuery = async (req, res) => {
     const customerContextListStr = existingCustomerNames.length > 0 ? existingCustomerNames.join(', ') : 'None';
 
     const prompt = `
-You are an expert Gujarati speech recognition and voice query assistant for small Indian shopkeepers.
-Analyze the provided audio recording.
+You are an expert multilingual speech recognition and voice query assistant for Indian shopkeepers.
+Analyze the provided audio recording. Note that the speaker may speak in Gujarati, Hindi, English, or any mix of these three languages. Auto-detect the language(s) used and transcribe accurately regardless of which language or mix is used.
 
 Task:
 1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, daily sales, or general questions) OR making a TRANSACTION instruction (recording sale/udhaar).
@@ -516,6 +527,7 @@ Task:
    - "customer_name": Extracted customer name if queryType is "customer_balance" (string or null).
      - Existing Customer List for this shop: [ ${customerContextListStr} ]
      - Prefer matching spoken customer name to existing list if phonetically close.
+   - "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed".
    - "answerText": If queryType is "general", provide a clear spoken response in Gujarati script. For customer_balance and daily_summary, this can be null.
    - "answerTextEnglish": English translation of answerText.
 3. If classification is "TRANSACTION":
@@ -526,6 +538,7 @@ Return ONLY a valid JSON object without markdown formatting:
   "classification": "QUERY" | "TRANSACTION",
   "queryType": "customer_balance" | "daily_summary" | "general" | null,
   "customer_name": "..." | null,
+  "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed",
   "answerText": "..." | null,
   "answerTextEnglish": "..." | null
 }

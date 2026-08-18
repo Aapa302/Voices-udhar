@@ -7,3 +7,4 @@
 
   ➜  Local:   http://localhost:3000/
   ➜  Network: use --host to expose
+6:59:53 PM [vite] (client) hmr update /src/pages/HomeScreen.jsx
