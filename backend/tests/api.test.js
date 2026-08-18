@@ -340,7 +340,7 @@ describe('Voice Udhar API Integration Tests', () => {
       customerId = custRes.body.data.customerId;
     });
 
-    it('POST /api/transactions should log udhaar_add transaction and update totalUdhaar', async () => {
+    it('POST /api/transactions should log udhaar_add transaction, update totalUdhaar, and store detectedLanguage', async () => {
       const res = await request(app)
         .post('/api/transactions')
         .set('x-api-key', apiKey)
@@ -350,11 +350,13 @@ describe('Voice Udhar API Integration Tests', () => {
           amount: 50,
           items: ['2kg Sugar', '1L Milk'],
           rawVoiceText: 'Ramesh 50 rupees udhaar sugar and milk',
+          detectedLanguage: 'mixed',
         });
 
       expect(res.status).toBe(201);
       expect(res.body.data.type).toBe('udhaar_add');
       expect(res.body.data.amount).toBe(50);
+      expect(res.body.data.detectedLanguage).toBe('mixed');
 
       const custRes = await request(app)
         .get(`/api/customers/${shopkeeperId}`)
@@ -478,7 +480,7 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.status).toBe(400);
       });
 
-      it('should return structured JSON with name confidence and suggested customer name', async () => {
+      it('should return structured JSON with name confidence, suggested customer name, and detectedLanguage', async () => {
         const dummyAudioBase64 = Buffer.from('mock audio').toString('base64');
 
         const res = await request(app)
@@ -497,6 +499,7 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.body).toHaveProperty('name_confidence');
         expect(res.body).toHaveProperty('amount');
         expect(res.body).toHaveProperty('items');
+        expect(res.body).toHaveProperty('detectedLanguage');
         expect(res.body).toHaveProperty('confidence');
       });
     });

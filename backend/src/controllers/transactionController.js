@@ -88,6 +88,7 @@ const logTransaction = async (req, res) => {
       items: items || [],
       timestamp: txTimestamp,
       rawVoiceText: rawVoiceText || '',
+      detectedLanguage: req.body.detectedLanguage || 'gujarati',
     };
 
     // Save transaction

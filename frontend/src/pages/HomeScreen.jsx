@@ -244,6 +244,7 @@ export default function HomeScreen() {
           const phone = result.customer_phone || '';
           const suggestedName = result.suggested_customer_name || null;
           const nameConfidence = result.name_confidence || result.confidence || 'high';
+          const detectedLanguage = result.detectedLanguage || 'gujarati';
 
           setParsedData({
             customerName,
@@ -254,6 +255,7 @@ export default function HomeScreen() {
             phone,
             items: result.items || [],
             transcription: result.transcription_gujarati || '',
+            detectedLanguage,
           });
 
           // Pre-fill edit fields
@@ -343,6 +345,7 @@ export default function HomeScreen() {
         amount: numAmount,
         items: parsedData?.items || [],
         rawVoiceText: parsedData?.transcription || '',
+        detectedLanguage: parsedData?.detectedLanguage || 'gujarati',
       });
 
       // Automatically generate bill preview
@@ -715,6 +718,21 @@ export default function HomeScreen() {
                   }}
                 >
                   ✨ નવો ગ્રાહક / New Customer
+                </span>
+              )}
+              {parsedData.detectedLanguage && parsedData.detectedLanguage !== 'gujarati' && (
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.55rem',
+                    borderRadius: '12px',
+                    backgroundColor: 'rgba(240, 198, 116, 0.15)',
+                    color: '#F0C674',
+                    border: '1px solid rgba(240, 198, 116, 0.35)',
+                    fontWeight: '700',
+                  }}
+                >
+                  🌐 {parsedData.detectedLanguage === 'hindi' ? 'હિન્દી' : parsedData.detectedLanguage === 'english' ? 'English' : 'મિક્સ'}
                 </span>
               )}
             </div>
