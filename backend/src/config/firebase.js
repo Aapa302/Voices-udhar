@@ -133,25 +133,49 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
 } else {
   // Initialize real Firebase Admin SDK
   if (!admin.apps.length) {
-    if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH && fs.existsSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)) {
-      const serviceAccount = require(path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH));
+    let serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+    if (serviceAccountPath) {
+      serviceAccountPath = path.resolve(serviceAccountPath);
+    }
+
+    if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
+      const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+      const serviceAccount = JSON.parse(fileContent);
+
+      const projectId = serviceAccount.project_id || serviceAccount.projectId;
+      const clientEmail = serviceAccount.client_email || serviceAccount.clientEmail;
+      const privateKey = serviceAccount.private_key || serviceAccount.privateKey;
+
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey: privateKey ? privateKey.replace(/\\n/g, '\n') : undefined,
+        }),
+        projectId,
       });
+
+      console.log(`[Firebase] Initialized using service account file at "${serviceAccountPath}" for project "${projectId}".`);
     } else if (process.env.FIREBASE_PROJECT_ID) {
+      const projectId = process.env.FIREBASE_PROJECT_ID;
+      const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
       const privateKey = process.env.FIREBASE_PRIVATE_KEY
         ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
         : undefined;
 
       admin.initializeApp({
         credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: privateKey,
+          projectId,
+          clientEmail,
+          privateKey,
         }),
+        projectId,
       });
+
+      console.log(`[Firebase] Initialized using individual environment variables for project "${projectId}".`);
     } else {
       admin.initializeApp();
+      console.log('[Firebase] Initialized using default credentials.');
     }
   }
 
