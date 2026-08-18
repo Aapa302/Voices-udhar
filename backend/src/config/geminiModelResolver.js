@@ -1,5 +1,11 @@
-const DEFAULT_FALLBACK_MODEL = 'gemini-2.0-flash';
-let cachedModelName = null;
+const DEFAULT_CANDIDATE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro',
+];
+
+let cachedCandidateModels = null;
 
 /**
  * Parses version numbers from a model name string.
@@ -28,11 +34,12 @@ function compareVersions(v1, v2) {
 }
 
 /**
- * Selects the best Gemini model from an array of model objects returned by ListModels API.
+ * Selects an ordered list of candidate Gemini models from ListModels API response.
+ * Ordered by: Flash models (newest to oldest), then Pro models (newest to oldest), then others.
  */
-function selectBestModel(models) {
+function selectCandidateModels(models) {
   if (!Array.isArray(models) || models.length === 0) {
-    return null;
+    return DEFAULT_CANDIDATE_MODELS;
   }
 
   // Filter models that support generateContent
@@ -42,7 +49,7 @@ function selectBestModel(models) {
   });
 
   if (generateModels.length === 0) {
-    return null;
+    return DEFAULT_CANDIDATE_MODELS;
   }
 
   const cleanModels = generateModels.map((m) => {
@@ -53,39 +60,46 @@ function selectBestModel(models) {
     };
   });
 
-  // Filter flash models & pro models
   const flashModels = cleanModels.filter((m) => m.name.toLowerCase().includes('flash'));
   const proModels = cleanModels.filter((m) => m.name.toLowerCase().includes('pro'));
+  const otherModels = cleanModels.filter(
+    (m) => !m.name.toLowerCase().includes('flash') && !m.name.toLowerCase().includes('pro')
+  );
 
-  const candidatePool = flashModels.length > 0 ? flashModels : (proModels.length > 0 ? proModels : cleanModels);
-
-  // Sort candidates by version descending
-  candidatePool.sort((a, b) => {
+  const sortDesc = (a, b) => {
     const vA = parseVersion(a.name);
     const vB = parseVersion(b.name);
-    const cmp = compareVersions(vB, vA); // descending
+    const cmp = compareVersions(vB, vA);
     if (cmp !== 0) return cmp;
     return a.name.localeCompare(b.name);
-  });
+  };
 
-  return candidatePool[0].name;
+  flashModels.sort(sortDesc);
+  proModels.sort(sortDesc);
+  otherModels.sort(sortDesc);
+
+  const candidatePool = [...flashModels, ...proModels, ...otherModels].map((m) => m.name);
+
+  // Remove duplicates while preserving order
+  const uniqueCandidates = Array.from(new Set(candidatePool));
+
+  return uniqueCandidates.length > 0 ? uniqueCandidates : DEFAULT_CANDIDATE_MODELS;
 }
 
 /**
- * Resolves the Gemini model name by querying Google ListModels REST API.
- * Caches result in memory for lifetime of process.
+ * Resolves and caches the ordered list of candidate models from Google ListModels REST API.
  */
-async function resolveGeminiModel(apiKeyOverride) {
-  if (cachedModelName) {
-    return cachedModelName;
+async function getCandidateModels(apiKeyOverride) {
+  if (cachedCandidateModels && cachedCandidateModels.length > 0) {
+    return cachedCandidateModels;
   }
 
   const apiKey = apiKeyOverride || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    console.warn(`[Gemini] GEMINI_API_KEY missing. Falling back to default model: ${DEFAULT_FALLBACK_MODEL}`);
-    cachedModelName = DEFAULT_FALLBACK_MODEL;
-    return cachedModelName;
+    console.warn(`[Gemini] GEMINI_API_KEY missing. Using default candidate models list: ${DEFAULT_CANDIDATE_MODELS.join(', ')}`);
+    cachedCandidateModels = DEFAULT_CANDIDATE_MODELS;
+    return cachedCandidateModels;
   }
 
   try {
@@ -93,50 +107,128 @@ async function resolveGeminiModel(apiKeyOverride) {
     const response = await fetch(url);
 
     if (!response.ok) {
-      throw new Error(`ListModels HTTP error! status: ${response.status}`);
+      throw new Error(`ListModels HTTP error status: ${response.status}`);
     }
 
     const data = await response.json();
-    const selected = selectBestModel(data.models);
+    const candidates = selectCandidateModels(data.models);
 
-    if (selected) {
-      cachedModelName = selected;
-      console.log(`[Gemini] Auto-detected model: ${cachedModelName}`);
-    } else {
-      console.warn(`[Gemini] No suitable models supporting generateContent found in ListModels response. Falling back to default model: ${DEFAULT_FALLBACK_MODEL}`);
-      cachedModelName = DEFAULT_FALLBACK_MODEL;
-    }
+    cachedCandidateModels = candidates;
+    console.log(`[Gemini] Candidate models list initialized: ${cachedCandidateModels.join(', ')}`);
+    console.log(`[Gemini] Auto-detected primary model: ${cachedCandidateModels[0]}`);
   } catch (error) {
-    console.warn(`[Gemini] Auto-detection failed (${error.message}). Falling back to default model: ${DEFAULT_FALLBACK_MODEL}`);
-    cachedModelName = DEFAULT_FALLBACK_MODEL;
+    console.warn(`[Gemini] Auto-detection failed (${error.message}). Using default candidate models list: ${DEFAULT_CANDIDATE_MODELS.join(', ')}`);
+    cachedCandidateModels = DEFAULT_CANDIDATE_MODELS;
   }
 
-  return cachedModelName;
+  return cachedCandidateModels;
 }
 
 /**
- * Accessor for cached or resolved model name.
+ * Returns the primary (best) model name.
  */
 async function getGeminiModelName() {
-  if (cachedModelName) {
-    return cachedModelName;
+  const candidates = await getCandidateModels();
+  return candidates[0];
+}
+
+/**
+ * Backward compatibility function for single model resolution.
+ */
+async function resolveGeminiModel(apiKeyOverride) {
+  const candidates = await getCandidateModels(apiKeyOverride);
+  return candidates[0];
+}
+
+/**
+ * Helper to determine if an error is non-transient (e.g., auth, bad request).
+ * Retrying with a different model won't help non-transient errors.
+ */
+function isNonTransientError(error) {
+  if (!error) return false;
+  const status = error.status || error.statusCode;
+  const message = (error.message || '').toLowerCase();
+
+  // HTTP status codes that indicate client error / non-transient issue
+  if (status && [400, 401, 403, 404].includes(Number(status))) {
+    return true;
   }
-  return await resolveGeminiModel();
+
+  // Common non-transient error phrases
+  if (
+    message.includes('api_key_invalid') ||
+    message.includes('invalid api key') ||
+    message.includes('unauthorized') ||
+    message.includes('permission denied') ||
+    message.includes('invalid_argument')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Helper for retry delay.
+ */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Calls Gemini API with fallback retry logic across candidate models.
+ * @param {GoogleGenerativeAI} genAI - The initialized GoogleGenerativeAI instance
+ * @param {Function} generateContentFn - Async callback receiving a initialized model instance: async (model) => ...
+ * @param {Object} options - Optional config { retryDelayMs }
+ */
+async function generateWithFallback(genAI, generateContentFn, options = {}) {
+  const candidates = await getCandidateModels();
+  const retryDelayMs = options.retryDelayMs !== undefined ? options.retryDelayMs : 500;
+  let lastError = null;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const modelName = candidates[i];
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await generateContentFn(model);
+      console.log(`[Gemini] Successfully executed request using model: ${modelName}`);
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[Gemini] Model ${modelName} failed (${error.message || error})`);
+
+      if (isNonTransientError(error)) {
+        console.warn(`[Gemini] Non-transient error encountered on ${modelName}. Aborting model retries.`);
+        throw error;
+      }
+
+      if (i < candidates.length - 1) {
+        console.log(`[Gemini] Retrying request with next fallback model (${candidates[i + 1]})...`);
+        if (retryDelayMs > 0) {
+          await sleep(retryDelayMs);
+        }
+      }
+    }
+  }
+
+  console.error(`[Gemini] All candidate models (${candidates.join(', ')}) failed.`);
+  throw lastError || new Error('All Gemini candidate models failed to process request');
 }
 
 /**
  * Resets memory cache (primarily for unit testing).
  */
 function resetCache() {
-  cachedModelName = null;
+  cachedCandidateModels = null;
 }
 
 module.exports = {
   resolveGeminiModel,
   getGeminiModelName,
-  selectBestModel,
+  getCandidateModels,
+  selectCandidateModels,
+  generateWithFallback,
   parseVersion,
   compareVersions,
+  isNonTransientError,
   resetCache,
-  DEFAULT_FALLBACK_MODEL,
+  DEFAULT_CANDIDATE_MODELS,
 };

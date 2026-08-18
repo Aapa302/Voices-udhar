@@ -1,14 +1,17 @@
 const {
   resolveGeminiModel,
   getGeminiModelName,
-  selectBestModel,
+  getCandidateModels,
+  selectCandidateModels,
+  generateWithFallback,
   parseVersion,
   compareVersions,
+  isNonTransientError,
   resetCache,
-  DEFAULT_FALLBACK_MODEL,
+  DEFAULT_CANDIDATE_MODELS,
 } = require('../src/config/geminiModelResolver');
 
-describe('geminiModelResolver', () => {
+describe('geminiModelResolver with candidate list & automatic fallback', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -41,50 +44,46 @@ describe('geminiModelResolver', () => {
     });
   });
 
-  describe('selectBestModel', () => {
-    test('selects highest version flash model that supports generateContent', () => {
+  describe('selectCandidateModels', () => {
+    test('selects ordered candidate models (flash newest to oldest, then pro newest to oldest)', () => {
       const models = [
         { name: 'models/gemini-1.0-pro', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-1.5-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.0-flash', supportedGenerationMethods: ['embedContent'] }, // unsupported method
       ];
 
-      const selected = selectBestModel(models);
-      expect(selected).toBe('gemini-2.5-flash');
+      const candidates = selectCandidateModels(models);
+      expect(candidates).toEqual([
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-2.5-pro',
+        'gemini-1.0-pro',
+      ]);
     });
 
-    test('falls back to highest pro model if no flash model supports generateContent', () => {
-      const models = [
-        { name: 'models/gemini-1.0-pro', supportedGenerationMethods: ['generateContent'] },
-        { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
-        { name: 'models/gemini-1.5-flash', supportedGenerationMethods: ['embedContent'] },
-      ];
-
-      const selected = selectBestModel(models);
-      expect(selected).toBe('gemini-2.5-pro');
-    });
-
-    test('returns null if models array is empty or no model supports generateContent', () => {
-      expect(selectBestModel([])).toBeNull();
+    test('returns default candidate models if list is empty or no model supports generateContent', () => {
+      expect(selectCandidateModels([])).toEqual(DEFAULT_CANDIDATE_MODELS);
       expect(
-        selectBestModel([
+        selectCandidateModels([
           { name: 'models/gemini-1.5-flash', supportedGenerationMethods: ['embedContent'] },
         ])
-      ).toBeNull();
+      ).toEqual(DEFAULT_CANDIDATE_MODELS);
     });
   });
 
-  describe('resolveGeminiModel & getGeminiModelName', () => {
-    test('uses fallback model when GEMINI_API_KEY is missing', async () => {
+  describe('getCandidateModels & resolveGeminiModel', () => {
+    test('uses default candidate list when GEMINI_API_KEY is missing', async () => {
       delete process.env.GEMINI_API_KEY;
 
-      const model = await resolveGeminiModel();
-      expect(model).toBe(DEFAULT_FALLBACK_MODEL);
+      const candidates = await getCandidateModels();
+      expect(candidates).toEqual(DEFAULT_CANDIDATE_MODELS);
     });
 
-    test('fetches from ListModels API and caches the result', async () => {
+    test('fetches from ListModels API and caches candidate list', async () => {
       process.env.GEMINI_API_KEY = 'test-api-key';
 
       const mockResponse = {
@@ -99,34 +98,127 @@ describe('geminiModelResolver', () => {
         json: jest.fn().mockResolvedValue(mockResponse),
       });
 
-      const model = await resolveGeminiModel();
-      expect(model).toBe('gemini-2.5-flash');
+      const candidates = await getCandidateModels();
+      expect(candidates).toEqual(['gemini-2.5-flash', 'gemini-1.5-flash']);
       expect(global.fetch).toHaveBeenCalledTimes(1);
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://generativelanguage.googleapis.com/v1beta/models?key=test-api-key'
-      );
 
-      // Second call should return cached value without fetching again
-      const cachedModel = await getGeminiModelName();
-      expect(cachedModel).toBe('gemini-2.5-flash');
+      // Subsequent call should use cache
+      const cachedCandidates = await getCandidateModels();
+      expect(cachedCandidates).toEqual(['gemini-2.5-flash', 'gemini-1.5-flash']);
       expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      const primary = await resolveGeminiModel();
+      expect(primary).toBe('gemini-2.5-flash');
     });
 
-    test('falls back gracefully on API error (e.g. 403 or network failure)', async () => {
-      process.env.GEMINI_API_KEY = 'invalid-key';
+    test('falls back gracefully on API error (e.g. status 500)', async () => {
+      process.env.GEMINI_API_KEY = 'test-api-key';
 
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,
-        status: 403,
+        status: 500,
       });
 
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-      const model = await resolveGeminiModel();
-      expect(model).toBe(DEFAULT_FALLBACK_MODEL);
-
+      const candidates = await getCandidateModels();
+      expect(candidates).toEqual(DEFAULT_CANDIDATE_MODELS);
       expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();
+    });
+  });
+
+  describe('isNonTransientError', () => {
+    test('identifies non-transient client/auth/validation errors', () => {
+      expect(isNonTransientError({ status: 400 })).toBe(true);
+      expect(isNonTransientError({ status: 401 })).toBe(true);
+      expect(isNonTransientError({ status: 403 })).toBe(true);
+      expect(isNonTransientError({ status: 404 })).toBe(true);
+      expect(isNonTransientError({ message: 'API_KEY_INVALID' })).toBe(true);
+
+      // Transient errors
+      expect(isNonTransientError({ status: 503 })).toBe(false);
+      expect(isNonTransientError({ status: 429 })).toBe(false);
+      expect(isNonTransientError({ status: 500 })).toBe(false);
+      expect(isNonTransientError(new Error('Network failure'))).toBe(false);
+    });
+  });
+
+  describe('generateWithFallback', () => {
+    let mockGenAI;
+
+    beforeEach(() => {
+      mockGenAI = {
+        getGenerativeModel: jest.fn((opts) => ({ modelName: opts.model })),
+      };
+    });
+
+    test('executes successfully on primary candidate without retries', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      delete global.fetch;
+
+      const generateFn = jest.fn().mockResolvedValue({ response: { text: () => 'OK' } });
+
+      const result = await generateWithFallback(mockGenAI, generateFn, { retryDelayMs: 0 });
+
+      expect(result.response.text()).toBe('OK');
+      expect(mockGenAI.getGenerativeModel).toHaveBeenCalledTimes(1);
+      expect(mockGenAI.getGenerativeModel).toHaveBeenCalledWith({ model: DEFAULT_CANDIDATE_MODELS[0] });
+    });
+
+    test('retries with next candidate model when primary fails with transient error (503)', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const generateFn = jest
+        .fn()
+        .mockRejectedValueOnce({ status: 503, message: 'Service Unavailable' })
+        .mockResolvedValueOnce({ response: { text: () => 'Fallback OK' } });
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await generateWithFallback(mockGenAI, generateFn, { retryDelayMs: 0 });
+
+      expect(result.response.text()).toBe('Fallback OK');
+      expect(generateFn).toHaveBeenCalledTimes(2);
+      expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(1, { model: DEFAULT_CANDIDATE_MODELS[0] });
+      expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(2, { model: DEFAULT_CANDIDATE_MODELS[1] });
+
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+
+    test('aborts retries immediately on non-transient error (401 invalid API key)', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const authError = { status: 401, message: 'API key not valid' };
+      const generateFn = jest.fn().mockRejectedValue(authError);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(generateWithFallback(mockGenAI, generateFn, { retryDelayMs: 0 })).rejects.toEqual(authError);
+
+      expect(generateFn).toHaveBeenCalledTimes(1);
+      expect(mockGenAI.getGenerativeModel).toHaveBeenCalledTimes(1);
+
+      warnSpy.mockRestore();
+    });
+
+    test('throws last error if all candidate models fail transiently', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const error503 = { status: 503, message: 'Overloaded' };
+      const generateFn = jest.fn().mockRejectedValue(error503);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(generateWithFallback(mockGenAI, generateFn, { retryDelayMs: 0 })).rejects.toEqual(error503);
+
+      expect(generateFn).toHaveBeenCalledTimes(DEFAULT_CANDIDATE_MODELS.length);
+
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     });
   });
 });
