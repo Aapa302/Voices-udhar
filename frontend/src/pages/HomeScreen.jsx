@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { processVoiceAudio, processVoiceQuery } from '../api/voice';
-import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, markReminderSent } from '../api/customers';
+import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, markReminderSent, getRemindersToday } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
 import { getInventoryApi, addOrUpdateInventoryApi } from '../api/inventory';
@@ -64,6 +64,10 @@ export default function HomeScreen() {
   const [currentReminderIndex, setCurrentReminderIndex] = useState(0);
   const [isReminderDismissed, setIsReminderDismissed] = useState(false);
 
+  // Today Reminders Queue banner state
+  const [todayRemindersCount, setTodayRemindersCount] = useState(0);
+  const [isTodayRemindersDismissed, setIsTodayRemindersDismissed] = useState(false);
+
   useEffect(() => {
     const fetchPendingAlertsAndReminders = async () => {
       const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
@@ -76,6 +80,11 @@ export default function HomeScreen() {
         const remindersData = await getCustomerReminders(shopkeeperId, 30);
         if (remindersData && remindersData.remindersNeeded) {
           setReminders(remindersData.remindersNeeded);
+        }
+
+        const todayRes = await getRemindersToday(shopkeeperId);
+        if (todayRes && todayRes.remindersToday) {
+          setTodayRemindersCount(todayRes.remindersToday.length);
         }
 
         const inventoryData = await getInventoryApi(shopkeeperId);
@@ -621,6 +630,67 @@ export default function HomeScreen() {
 
   return (
     <div className="main-content">
+      {/* TODAY REMINDERS QUEUE BANNER / CARD */}
+      {!isTodayRemindersDismissed && todayRemindersCount > 0 && screenState === SCREEN_STATE.IDLE && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          onClick={() => navigate('/reminders/today')}
+          style={{
+            backgroundColor: 'rgba(124, 58, 237, 0.15)',
+            border: '1px solid rgba(240, 198, 116, 0.5)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.85rem 1rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            boxShadow: '0 4px 15px rgba(124, 58, 237, 0.2)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flex: 1 }}>
+            <Sparkles size={22} color="#F0C674" style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: '0.95rem', color: '#F8FAFC', fontWeight: '800' }}>
+                📋 આજે {todayRemindersCount} રિમાઇન્ડર મોકલવાના છે
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: '500' }}>
+                {todayRemindersCount} {todayRemindersCount === 1 ? 'reminder' : 'reminders'} to send today — ટેપ કરીને જુઓ / Tap to view
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <ChevronRight size={18} color="#F0C674" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsTodayRemindersDismissed(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#94A3B8',
+                padding: '0.3rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '6px',
+              }}
+              title="Dismiss card"
+              aria-label="Dismiss card"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* LOW STOCK ALERT BANNER */}
       {!isStockAlertDismissed && lowStockCount > 0 && screenState === SCREEN_STATE.IDLE && (
         <motion.div

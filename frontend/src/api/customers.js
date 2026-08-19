@@ -145,3 +145,42 @@ export async function markReminderSent(customerId) {
 
   return await handleApiResponse(response, 'રીમાઇન્ડર માર્ક કરવામાં નિષ્ફળ / Failed to mark reminder sent');
 }
+
+/**
+ * Get today's due payment reminders for shopkeeper queue.
+ * @param {string} shopkeeperId
+ * @returns {Promise<Object>} { remindersToday: [] }
+ */
+export async function getRemindersToday(shopkeeperId) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/reminders/today/${shopkeeperId}`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  const data = await handleApiResponse(response, 'આજનાં રીમાઇન્ડર્સ મેળવવામાં નિષ્ફળ / Failed to fetch today reminders');
+  return data || { remindersToday: [] };
+}
+
+/**
+ * Mark batch payment reminders as sent.
+ * @param {Array<string>} customerIds
+ * @returns {Promise<Object>}
+ */
+export async function markBatchRemindersSent(customerIds) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/reminders/batch-sent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+    },
+    body: JSON.stringify({ customerIds }),
+  });
+
+  return await handleApiResponse(response, 'બેચ રીમાઇન્ડર્સ માર્ક કરવામાં નિષ્ફળ / Failed to mark batch reminders sent');
+}

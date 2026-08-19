@@ -10,6 +10,7 @@ import CustomerHistoryScreen from './pages/CustomerHistoryScreen';
 import AlertsScreen from './pages/AlertsScreen';
 import SummaryScreen from './pages/SummaryScreen';
 import InventoryScreen from './pages/InventoryScreen';
+import TodayRemindersScreen from './pages/TodayRemindersScreen';
 import { Loader2, Sparkles } from 'lucide-react';
 
 function AnimatedRoutes() {
@@ -63,6 +64,14 @@ function AnimatedRoutes() {
           element={
             <PageWrapper>
               <SummaryScreen />
+            </PageWrapper>
+          }
+        />
+        <Route
+          path="/reminders/today"
+          element={
+            <PageWrapper>
+              <TodayRemindersScreen />
             </PageWrapper>
           }
         />
