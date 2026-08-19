@@ -108,6 +108,12 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
       col.set(this.id, { ...existing, ...data });
       return { id: this.id };
     }
+
+    async delete() {
+      const col = getCollection(this.colName);
+      col.delete(this.id);
+      return { id: this.id };
+    }
   }
 
   class MockCollectionReference extends MockQuery {

@@ -170,27 +170,71 @@ const processVoice = async (req, res) => {
     const firestoreFetchMs = Date.now() - firestoreStart;
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      // If Gemini API key is missing, return a graceful mock fallback or error
-      if (process.env.NODE_ENV === 'test' || process.env.USE_MOCK_GEMINI === 'true') {
-        const mockName = 'Ramesh';
-        const suggested = findSuggestedCustomerName(mockName, existingCustomerNames);
+    if (!apiKey || process.env.NODE_ENV === 'test' || process.env.USE_MOCK_GEMINI === 'true') {
+      let decodedAudio = '';
+      try {
+        decodedAudio = Buffer.from(base64Content, 'base64').toString('utf8');
+      } catch (e) {}
+
+      if (decodedAudio.includes('mock_add_stock') || req.body.mockIntent === 'add_stock') {
         return res.status(200).json({
-          transcription_gujarati: 'રમેશ ભાઈ ૫૦ રૂપિયા ઉધાર ખાંડ અને ચા',
-          translation_english: 'Ramesh bhai 50 rupees credit sugar and tea',
-          intent: 'add_udhaar',
-          customer_name: mockName,
-          suggested_customer_name: suggested,
-          name_confidence: 'high',
-          amount: 50,
-          items: ['sugar', 'tea'],
+          transcription_gujarati: '૫ પેકેટ પાર્લેજી આવ્યું',
+          translation_english: '5 packet Parle-G received',
+          intent: 'add_stock',
+          customer_name: null,
+          suggested_customer_name: null,
+          name_confidence: 'low',
+          amount: 0,
+          items: ['Parle-G'],
+          stock_item_name: 'Parle-G',
+          quantity: 5,
+          unit: 'packet',
           confidence: 'high',
           detectedLanguage: 'gujarati',
         });
       }
-      return res.status(500).json({
-        error: 'Configuration Error',
-        message: 'GEMINI_API_KEY environment variable is not configured',
+
+      if (decodedAudio.includes('mock_reduce_stock') || req.body.mockIntent === 'reduce_stock') {
+        return res.status(200).json({
+          transcription_gujarati: '૨ પેકેટ પાર્લેજી વેચાયા',
+          translation_english: '2 packet Parle-G sold',
+          intent: 'reduce_stock',
+          customer_name: null,
+          suggested_customer_name: null,
+          name_confidence: 'low',
+          amount: 0,
+          items: ['Parle-G'],
+          stock_item_name: 'Parle-G',
+          quantity: 2,
+          unit: 'packet',
+          confidence: 'high',
+          detectedLanguage: 'gujarati',
+        });
+      }
+
+      if (!apiKey && process.env.NODE_ENV !== 'test' && process.env.USE_MOCK_GEMINI !== 'true') {
+        return res.status(500).json({
+          error: 'Configuration Error',
+          message: 'GEMINI_API_KEY environment variable is not configured',
+        });
+      }
+
+      const mockName = 'Ramesh';
+      const suggested = findSuggestedCustomerName(mockName, existingCustomerNames);
+      return res.status(200).json({
+        transcription_gujarati: 'રમેશ ભાઈ ૫૦ રૂપિયા ઉધાર ખાંડ અને ચા',
+        translation_english: 'Ramesh bhai 50 rupees credit sugar and tea',
+        intent: 'add_udhaar',
+        customer_name: mockName,
+        suggested_customer_name: suggested,
+        name_confidence: 'high',
+        amount: 50,
+        items: ['sugar', 'tea'],
+        stock_item_name: null,
+        quantity: 0,
+        unit: null,
+        confidence: 'high',
+        detectedLanguage: 'gujarati',
       });
     }
 
@@ -220,23 +264,31 @@ Task:
    - "add_udhaar": Customer bought items on credit (owes money).
    - "mark_paid": Customer paid back credit/udhaar.
    - "record_sale": A direct cash sale happened.
+   - "add_stock": Adding new stock or inventory received (e.g. "5 packet Parle-G aayu", "10 kg sugar aavi").
+   - "reduce_stock": Reducing or selling stock/inventory (e.g. "2 packet Parle-G becha", "stock ochhu thayu").
    - "unclear": If the audio is not clear or intent cannot be determined.
 4. Extract customer name if mentioned (customer_name) - string or null.
 5. Assess name confidence specifically (name_confidence): "high", "medium", or "low".
 6. Extract total amount in rupees (amount) - number or 0.
 7. Extract list of items mentioned (items) - array of strings or empty array.
-8. Detect the primary language used (detectedLanguage): "gujarati", "hindi", "english", or "mixed".
-9. Assess overall confidence score (confidence): "high", "medium", or "low".
+8. Extract inventory stock item name if intent is add_stock/reduce_stock (stock_item_name) - string or null.
+9. Extract stock quantity if intent is add_stock/reduce_stock (quantity) - number or 0.
+10. Extract unit for stock if mentioned (unit) - string or null (e.g. "packet", "kg", "piece", "liter", "box").
+11. Detect the primary language used (detectedLanguage): "gujarati", "hindi", "english", or "mixed".
+12. Assess overall confidence score (confidence): "high", "medium", or "low".
 
 Return ONLY a valid JSON object without any Markdown formatting or code block markers:
 {
   "transcription_gujarati": "...",
   "translation_english": "...",
-  "intent": "add_udhaar" | "mark_paid" | "record_sale" | "unclear",
+  "intent": "add_udhaar" | "mark_paid" | "record_sale" | "add_stock" | "reduce_stock" | "unclear",
   "customer_name": "...",
   "name_confidence": "high" | "medium" | "low",
   "amount": 0,
   "items": ["..."],
+  "stock_item_name": "...",
+  "quantity": 0,
+  "unit": "...",
   "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed",
   "confidence": "high" | "medium" | "low"
 }
