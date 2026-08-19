@@ -436,6 +436,59 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(forbiddenRes.status).toBe(403);
     });
 
+    it('POST /api/reminders/batch-sent should mark reminders sent in batch and enforce tenant isolation', async () => {
+      // Create 2 customers for primary shopkeeper
+      const c1Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({ name: 'Batch Cust 1', phone: '9990001111' });
+      const c1Id = c1Res.body.data.customerId;
+
+      const c2Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({ name: 'Batch Cust 2', phone: '9990002222' });
+      const c2Id = c2Res.body.data.customerId;
+
+      // Create 1 customer for other shopkeeper
+      const cOtherRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', otherApiKey)
+        .send({ name: 'Other Cust', phone: '9990003333' });
+      const cOtherId = cOtherRes.body.data.customerId;
+
+      // Bad request test
+      const badRes = await request(app)
+        .post('/api/reminders/batch-sent')
+        .set('x-api-key', apiKey)
+        .send({ customerIds: [] });
+      expect(badRes.status).toBe(400);
+
+      // Batch send attempt with mixed customer IDs
+      const batchRes = await request(app)
+        .post('/api/reminders/batch-sent')
+        .set('x-api-key', apiKey)
+        .send({ customerIds: [c1Id, c2Id, cOtherId] });
+
+      expect(batchRes.status).toBe(200);
+      expect(batchRes.body.updatedCount).toBe(2);
+      expect(batchRes.body.updatedCustomerIds).toContain(c1Id);
+      expect(batchRes.body.updatedCustomerIds).toContain(c2Id);
+      expect(batchRes.body.updatedCustomerIds).not.toContain(cOtherId);
+
+      // Verify customer 1 and customer 2 details have lastReminderSentAt updated
+      const detail1 = await request(app)
+        .get(`/api/customers/detail/${c1Id}`)
+        .set('x-api-key', apiKey);
+      expect(detail1.body.data).toHaveProperty('lastReminderSentAt');
+
+      // Verify other shopkeeper customer was NOT updated
+      const detailOther = await request(app)
+        .get(`/api/customers/detail/${cOtherId}`)
+        .set('x-api-key', otherApiKey);
+      expect(detailOther.body.data.lastReminderSentAt).toBeUndefined();
+    });
+
     it('GET /api/customers/reminders/:shopkeeperId and POST /api/customers/:customerId/reminder-sent should handle smart reminders flow', async () => {
       const now = Date.now();
       const MS_PER_DAY = 24 * 60 * 60 * 1000;

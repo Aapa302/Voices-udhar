@@ -12,4 +12,7 @@ router.get('/today', customerController.getRemindersToday);
 // GET /api/reminders/today/:shopkeeperId - get today reminders for shopkeeper
 router.get('/today/:shopkeeperId', customerController.getRemindersToday);
 
+// POST /api/reminders/batch-sent - mark payment reminders as sent for multiple customers
+router.post('/batch-sent', customerController.markBatchRemindersSent);
+
 module.exports = router;

@@ -132,6 +132,25 @@ if (process.env.USE_MOCK_DB === 'true' || process.env.NODE_ENV === 'test') {
 
   db = {
     collection: (colName) => new MockCollectionReference(colName),
+    batch: () => {
+      const operations = [];
+      return {
+        set(docRef, data, options) {
+          operations.push(() => docRef.set(data, options));
+        },
+        update(docRef, data) {
+          operations.push(() => docRef.update(data));
+        },
+        delete(docRef) {
+          operations.push(() => docRef.delete());
+        },
+        async commit() {
+          for (const op of operations) {
+            await op();
+          }
+        },
+      };
+    },
     _reset: () => {
       Object.keys(collections).forEach((key) => delete collections[key]);
     },
