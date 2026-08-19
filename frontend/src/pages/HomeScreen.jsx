@@ -6,7 +6,9 @@ import { processVoiceAudio, processVoiceQuery } from '../api/voice';
 import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, markReminderSent } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
+import { getInventoryApi, addOrUpdateInventoryApi } from '../api/inventory';
 import BillModal from '../components/BillModal';
+import { Package } from 'lucide-react';
 
 // State Enum
 const SCREEN_STATE = {
@@ -51,9 +53,11 @@ export default function HomeScreen() {
   const [generatedBill, setGeneratedBill] = useState(null);
   const [showBillModal, setShowBillModal] = useState(false);
 
-  // Pending udhaar alerts state for Home screen banner
+  // Pending udhaar alerts state & low stock alerts state for Home screen banner
   const [pendingAlertCount, setPendingAlertCount] = useState(0);
+  const [lowStockCount, setLowStockCount] = useState(0);
   const [isAlertBannerDismissed, setIsAlertBannerDismissed] = useState(false);
+  const [isStockAlertDismissed, setIsStockAlertDismissed] = useState(false);
 
   // Smart Reminders state
   const [reminders, setReminders] = useState([]);
@@ -73,8 +77,14 @@ export default function HomeScreen() {
         if (remindersData && remindersData.remindersNeeded) {
           setReminders(remindersData.remindersNeeded);
         }
+
+        const inventoryData = await getInventoryApi(shopkeeperId);
+        const lowStockItems = (inventoryData || []).filter(
+          (item) => item.isLowStock || Number(item.quantity) <= Number(item.lowStockThreshold || 5)
+        );
+        setLowStockCount(lowStockItems.length);
       } catch (err) {
-        console.error('Failed to fetch alerts/reminders for home screen:', err);
+        console.error('Failed to fetch alerts/reminders/inventory for home screen:', err);
       }
     };
 
@@ -124,6 +134,14 @@ export default function HomeScreen() {
   const [editAmount, setEditAmount] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editTxType, setEditTxType] = useState('udhaar_add');
+
+  // Form state for Stock Editing
+  const [editStockItemName, setEditStockItemName] = useState('');
+  const [editStockQuantity, setEditStockQuantity] = useState('');
+  const [editStockUnit, setEditStockUnit] = useState('packet');
+
+  // Success note for sale stock update
+  const [stockSuccessNote, setStockSuccessNote] = useState('');
 
   // Ref for auto-focusing name input in EDITING mode
   const editCustomerNameInputRef = useRef(null);
@@ -281,6 +299,31 @@ export default function HomeScreen() {
             return;
           }
 
+          const isStockIntent = result.intent === 'add_stock' || result.intent === 'reduce_stock';
+
+          if (isStockIntent) {
+            const stockItemName = result.stock_item_name || (result.items && result.items[0]) || 'વસ્તુ (Item)';
+            const quantity = result.quantity || 1;
+            const unit = result.unit || 'packet';
+
+            setParsedData({
+              isStock: true,
+              intent: result.intent,
+              stockItemName,
+              quantity,
+              unit,
+              transcription: result.transcription_gujarati || '',
+              detectedLanguage: result.detectedLanguage || 'gujarati',
+            });
+
+            setEditStockItemName(stockItemName);
+            setEditStockQuantity(quantity.toString());
+            setEditStockUnit(unit);
+
+            setScreenState(SCREEN_STATE.CONFIRMATION);
+            return;
+          }
+
           const txType = mapIntentToTxType(result.intent);
           const customerName = result.customer_name || 'ગ્રાહક (Unknown)';
           const amount = result.amount || 0;
@@ -290,6 +333,7 @@ export default function HomeScreen() {
           const detectedLanguage = result.detectedLanguage || 'gujarati';
 
           setParsedData({
+            isStock: false,
             customerName,
             suggestedName,
             nameConfidence,
@@ -321,7 +365,54 @@ export default function HomeScreen() {
     }
   };
 
-  // 4. Save Transaction
+  // 4. Save Stock or Transaction
+  const executeSaveStock = async (finalItemName, finalQty, finalUnit, isReduce = false) => {
+    setScreenState(SCREEN_STATE.SAVING);
+    setErrorMessage('');
+
+    const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
+    if (!shopkeeperId) {
+      setErrorMessage('દુકાનદાર આઈડી મળ્યો નથી. ફરી લોગીન કરો. / Shopkeeper ID missing.');
+      setScreenState(SCREEN_STATE.ERROR);
+      return;
+    }
+
+    try {
+      const cleanItemName = finalItemName.trim();
+      const numQty = Number(finalQty);
+
+      if (!cleanItemName) {
+        setErrorMessage('મહેરબાની કરીને વસ્તુનું નામ દાખલ કરો. / Please enter item name.');
+        setScreenState(SCREEN_STATE.EDITING);
+        return;
+      }
+
+      if (isNaN(numQty) || numQty < 0) {
+        setErrorMessage('મહેરબાની કરીને સાચો જથ્થો દાખલ કરો. / Please enter valid quantity.');
+        setScreenState(SCREEN_STATE.EDITING);
+        return;
+      }
+
+      await addOrUpdateInventoryApi({
+        itemName: cleanItemName,
+        quantity: isReduce ? -numQty : numQty,
+        unit: finalUnit || 'packet',
+        mode: 'add',
+      });
+
+      setStockSuccessNote(`સ્ટોક અપડેટ થયો: ${cleanItemName} ${isReduce ? '-' : '+'}${numQty} ${finalUnit || 'packet'}`);
+      setScreenState(SCREEN_STATE.SUCCESS);
+
+      setTimeout(() => {
+        resetToIdle();
+      }, 2500);
+    } catch (err) {
+      console.error('Error saving stock:', err);
+      setErrorMessage(err.message || 'સ્ટોક સેવ કરવામાં ભૂલ આવી / Failed to save stock');
+      setScreenState(SCREEN_STATE.ERROR);
+    }
+  };
+
   const executeSave = async (finalName, finalAmount, finalTxType, finalPhone = '') => {
     setScreenState(SCREEN_STATE.SAVING);
     setErrorMessage('');
@@ -391,6 +482,13 @@ export default function HomeScreen() {
         detectedLanguage: parsedData?.detectedLanguage || 'gujarati',
       });
 
+      if (finalTxType === 'sale' && parsedData?.items && parsedData.items.length > 0) {
+        const itemsStr = Array.isArray(parsedData.items) ? parsedData.items.join(', ') : parsedData.items;
+        setStockSuccessNote(`સ્ટોક અપડેટ થયો: ${itemsStr}`);
+      } else {
+        setStockSuccessNote('');
+      }
+
       // Automatically generate bill preview
       try {
         const billResult = await generateBillApi({
@@ -425,12 +523,20 @@ export default function HomeScreen() {
 
   const handleConfirmDirect = () => {
     if (!parsedData) return;
-    executeSave(parsedData.customerName, parsedData.amount, parsedData.txType, parsedData.phone);
+    if (parsedData.isStock) {
+      executeSaveStock(parsedData.stockItemName, parsedData.quantity, parsedData.unit, parsedData.intent === 'reduce_stock');
+    } else {
+      executeSave(parsedData.customerName, parsedData.amount, parsedData.txType, parsedData.phone);
+    }
   };
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
-    executeSave(editCustomerName, editAmount, editTxType, editPhone);
+    if (parsedData?.isStock) {
+      executeSaveStock(editStockItemName, editStockQuantity, editStockUnit, parsedData.intent === 'reduce_stock');
+    } else {
+      executeSave(editCustomerName, editAmount, editTxType, editPhone);
+    }
   };
 
   // SpeechSynthesis TTS helper logic
@@ -505,6 +611,7 @@ export default function HomeScreen() {
     setQueryResult(null);
     setGeneratedBill(null);
     setShowBillModal(false);
+    setStockSuccessNote('');
   };
 
   const handleCloseBillModal = () => {
@@ -514,6 +621,65 @@ export default function HomeScreen() {
 
   return (
     <div className="main-content">
+      {/* LOW STOCK ALERT BANNER */}
+      {!isStockAlertDismissed && lowStockCount > 0 && screenState === SCREEN_STATE.IDLE && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          onClick={() => navigate('/inventory')}
+          style={{
+            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+            border: '1px solid rgba(245, 158, 11, 0.4)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.75rem 0.9rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            boxShadow: '0 4px 15px rgba(245, 158, 11, 0.15)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1 }}>
+            <Package size={20} color="#FDE68A" style={{ flexShrink: 0 }} />
+            <div style={{ fontSize: '0.9rem', color: '#F8FAFC', fontWeight: '700' }}>
+              ⚠️ {lowStockCount} વસ્તુઓ ખતમ થવાની છે
+              <span style={{ display: 'block', fontSize: '0.75rem', color: '#FDE68A', fontWeight: '500' }}>
+                {lowStockCount} {lowStockCount === 1 ? 'item is' : 'items are'} running low on stock
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <ChevronRight size={18} color="#FDE68A" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsStockAlertDismissed(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#94A3B8',
+                padding: '0.3rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '6px',
+              }}
+              title="Dismiss banner"
+              aria-label="Dismiss banner"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* URGENT PENDING UDHAAR ALERT BANNER */}
       {!isAlertBannerDismissed && pendingAlertCount > 0 && screenState === SCREEN_STATE.IDLE && (
         <motion.div
@@ -816,84 +982,87 @@ export default function HomeScreen() {
             મેં સમજ્યું / Maine samjha:
           </div>
 
-          <div className="parsed-result-box">
-            <div className="parsed-main-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <span>{parsedData.customerName}, ₹{parsedData.amount}</span>
-              {!parsedData.suggestedName && (
+          {parsedData.isStock ? (
+            <div className="parsed-result-box">
+              <div className="parsed-main-text" style={{ fontSize: '1.3rem', color: '#F0C674' }}>
+                {parsedData.stockItemName}, {parsedData.quantity} {parsedData.unit} {parsedData.intent === 'reduce_stock' ? 'ઘટાડ્યું (Sold)' : 'ઉમેર્યું (Added)'}
+              </div>
+              <div style={{ marginTop: '0.5rem' }}>
                 <span
                   style={{
-                    fontSize: '0.75rem',
-                    padding: '0.2rem 0.5rem',
+                    fontSize: '0.8rem',
+                    padding: '0.25rem 0.65rem',
                     borderRadius: '12px',
                     backgroundColor: 'rgba(124, 58, 237, 0.25)',
                     color: '#C084FC',
                     border: '1px solid rgba(192, 132, 252, 0.4)',
-                    fontWeight: '600',
-                  }}
-                >
-                  ✨ નવો ગ્રાહક / New Customer
-                </span>
-              )}
-              {parsedData.detectedLanguage && parsedData.detectedLanguage !== 'gujarati' && (
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    padding: '0.2rem 0.55rem',
-                    borderRadius: '12px',
-                    backgroundColor: 'rgba(240, 198, 116, 0.15)',
-                    color: '#F0C674',
-                    border: '1px solid rgba(240, 198, 116, 0.35)',
                     fontWeight: '700',
                   }}
                 >
-                  🌐 {parsedData.detectedLanguage === 'hindi' ? 'હિન્દી' : parsedData.detectedLanguage === 'english' ? 'English' : 'મિક્સ'}
+                  📦 સ્ટોક અપડેટ / Inventory Update
                 </span>
+              </div>
+              {parsedData.transcription && (
+                <div style={{ marginTop: '0.85rem', fontSize: '0.9rem', color: '#94A3B8', fontStyle: 'italic', background: 'rgba(255, 255, 255, 0.04)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed rgba(255, 255, 255, 0.12)' }}>
+                  "{parsedData.transcription}"
+                </div>
               )}
             </div>
-
-            {/* Quick-select tap options if a suggested match or low name confidence */}
-            {(parsedData.suggestedName || parsedData.nameConfidence === 'low' || parsedData.nameConfidence === 'medium') && (
-              <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', backgroundColor: 'rgba(240, 198, 116, 0.08)', borderRadius: '8px', border: '1px solid rgba(240, 198, 116, 0.25)' }}>
-                <div style={{ fontSize: '0.8rem', color: '#F0C674', marginBottom: '0.4rem', fontWeight: '500' }}>
-                  🎯 ગ્રાહકનું નામ પસંદ કરો / Select Customer Name:
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setParsedData({ ...parsedData, customerName: parsedData.customerName });
-                      setEditCustomerName(parsedData.customerName);
-                    }}
+          ) : (
+            <div className="parsed-result-box">
+              <div className="parsed-main-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span>{parsedData.customerName}, ₹{parsedData.amount}</span>
+                {!parsedData.suggestedName && (
+                  <span
                     style={{
-                      padding: '0.35rem 0.75rem',
-                      borderRadius: '6px',
-                      fontSize: '0.85rem',
-                      border: editCustomerName === parsedData.customerName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
-                      backgroundColor: editCustomerName === parsedData.customerName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
-                      color: '#F8FAFC',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.3rem'
+                      fontSize: '0.75rem',
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(124, 58, 237, 0.25)',
+                      color: '#C084FC',
+                      border: '1px solid rgba(192, 132, 252, 0.4)',
+                      fontWeight: '600',
                     }}
                   >
-                    {editCustomerName === parsedData.customerName && <Check size={14} color="#F0C674" />}
-                    <span>{parsedData.customerName}</span>
-                  </button>
+                    ✨ નવો ગ્રાહક / New Customer
+                  </span>
+                )}
+                {parsedData.detectedLanguage && parsedData.detectedLanguage !== 'gujarati' && (
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      padding: '0.2rem 0.55rem',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(240, 198, 116, 0.15)',
+                      color: '#F0C674',
+                      border: '1px solid rgba(240, 198, 116, 0.35)',
+                      fontWeight: '700',
+                    }}
+                  >
+                    🌐 {parsedData.detectedLanguage === 'hindi' ? 'હિન્દી' : parsedData.detectedLanguage === 'english' ? 'English' : 'મિક્સ'}
+                  </span>
+                )}
+              </div>
 
-                  {parsedData.suggestedName && parsedData.suggestedName !== parsedData.customerName && (
+              {/* Quick-select tap options if a suggested match or low name confidence */}
+              {(parsedData.suggestedName || parsedData.nameConfidence === 'low' || parsedData.nameConfidence === 'medium') && (
+                <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', backgroundColor: 'rgba(240, 198, 116, 0.08)', borderRadius: '8px', border: '1px solid rgba(240, 198, 116, 0.25)' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#F0C674', marginBottom: '0.4rem', fontWeight: '500' }}>
+                    🎯 ગ્રાહકનું નામ પસંદ કરો / Select Customer Name:
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <button
                       type="button"
                       onClick={() => {
-                        setParsedData({ ...parsedData, customerName: parsedData.suggestedName });
-                        setEditCustomerName(parsedData.suggestedName);
+                        setParsedData({ ...parsedData, customerName: parsedData.customerName });
+                        setEditCustomerName(parsedData.customerName);
                       }}
                       style={{
                         padding: '0.35rem 0.75rem',
                         borderRadius: '6px',
                         fontSize: '0.85rem',
-                        border: editCustomerName === parsedData.suggestedName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
-                        backgroundColor: editCustomerName === parsedData.suggestedName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
+                        border: editCustomerName === parsedData.customerName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: editCustomerName === parsedData.customerName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
                         color: '#F8FAFC',
                         cursor: 'pointer',
                         display: 'flex',
@@ -901,51 +1070,76 @@ export default function HomeScreen() {
                         gap: '0.3rem'
                       }}
                     >
-                      {editCustomerName === parsedData.suggestedName && <Check size={14} color="#F0C674" />}
-                      <span>{parsedData.suggestedName} (Existing)</span>
+                      {editCustomerName === parsedData.customerName && <Check size={14} color="#F0C674" />}
+                      <span>{parsedData.customerName}</span>
                     </button>
-                  )}
+
+                    {parsedData.suggestedName && parsedData.suggestedName !== parsedData.customerName && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setParsedData({ ...parsedData, customerName: parsedData.suggestedName });
+                          setEditCustomerName(parsedData.suggestedName);
+                        }}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '6px',
+                          fontSize: '0.85rem',
+                          border: editCustomerName === parsedData.suggestedName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
+                          backgroundColor: editCustomerName === parsedData.suggestedName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
+                          color: '#F8FAFC',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem'
+                        }}
+                      >
+                        {editCustomerName === parsedData.suggestedName && <Check size={14} color="#F0C674" />}
+                        <span>{parsedData.suggestedName} (Existing)</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {(!parsedData.phone || parsedData.phone === '0000000000') ? (
-              <div
-                onClick={() => setScreenState(SCREEN_STATE.EDITING)}
-                style={{
-                  marginTop: '0.5rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  fontSize: '0.8rem',
-                  color: '#FDA4AF',
-                  backgroundColor: 'rgba(244, 63, 94, 0.12)',
-                  padding: '0.25rem 0.6rem',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(244, 63, 94, 0.3)',
-                  cursor: 'pointer'
-                }}
-              >
-                <AlertTriangle size={14} color="#F43F5E" />
-                <span>ફોન નંબર મળ્યો નથી (ઉમેરવા ટેપ કરો) / Phone number not captured, tap to add</span>
-              </div>
-            ) : (
-              <div style={{ marginTop: '0.4rem', fontSize: '0.85rem', color: '#94A3B8' }}>
-                📞 {parsedData.phone}
-              </div>
-            )}
+              {(!parsedData.phone || parsedData.phone === '0000000000') ? (
+                <div
+                  onClick={() => setScreenState(SCREEN_STATE.EDITING)}
+                  style={{
+                    marginTop: '0.5rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontSize: '0.8rem',
+                    color: '#FDA4AF',
+                    backgroundColor: 'rgba(244, 63, 94, 0.12)',
+                    padding: '0.25rem 0.6rem',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(244, 63, 94, 0.3)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <AlertTriangle size={14} color="#F43F5E" />
+                  <span>ફોન નંબર મળ્યો નથી (ઉમેરવા ટેપ કરો) / Phone number not captured, tap to add</span>
+                </div>
+              ) : (
+                <div style={{ marginTop: '0.4rem', fontSize: '0.85rem', color: '#94A3B8' }}>
+                  📞 {parsedData.phone}
+                </div>
+              )}
 
-            <div style={{ marginTop: '0.5rem' }}>
-              <span className={`action-badge ${parsedData.txType}`}>
-                {getActionLabel(parsedData.txType).gu} / {getActionLabel(parsedData.txType).en}
-              </span>
+              <div style={{ marginTop: '0.5rem' }}>
+                <span className={`action-badge ${parsedData.txType}`}>
+                  {getActionLabel(parsedData.txType).gu} / {getActionLabel(parsedData.txType).en}
+                </span>
+              </div>
+              {parsedData.transcription && (
+                <div style={{ marginTop: '0.85rem', fontSize: '0.9rem', color: '#94A3B8', fontStyle: 'italic', background: 'rgba(255, 255, 255, 0.04)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed rgba(255, 255, 255, 0.12)' }}>
+                  "{parsedData.transcription}"
+                </div>
+              )}
             </div>
-            {parsedData.transcription && (
-              <div style={{ marginTop: '0.85rem', fontSize: '0.9rem', color: '#94A3B8', fontStyle: 'italic', background: 'rgba(255, 255, 255, 0.04)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed rgba(255, 255, 255, 0.12)' }}>
-                "{parsedData.transcription}"
-              </div>
-            )}
-          </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <motion.button whileTap={{ scale: 0.98 }} className="btn-success" onClick={handleConfirmDirect}>
@@ -969,123 +1163,196 @@ export default function HomeScreen() {
 
           {errorMessage && <div className="error-banner">{errorMessage}</div>}
 
-          <form onSubmit={handleSaveEdit}>
-            <div className="form-group">
-              <label className="form-label" htmlFor="editCustomer">
-                ગ્રાહકનું નામ
-                <span className="form-sublabel"> Customer Name</span>
-              </label>
-              <input
-                ref={editCustomerNameInputRef}
-                id="editCustomer"
-                type="text"
-                className="form-input"
-                value={editCustomerName}
-                onChange={(e) => setEditCustomerName(e.target.value)}
-                required
-              />
+          {parsedData?.isStock ? (
+            <form onSubmit={handleSaveEdit}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="editStockItem">
+                  વસ્તુનું નામ
+                  <span className="form-sublabel"> Item Name</span>
+                </label>
+                <input
+                  id="editStockItem"
+                  type="text"
+                  className="form-input"
+                  value={editStockItemName}
+                  onChange={(e) => setEditStockItemName(e.target.value)}
+                  required
+                />
+              </div>
 
-              {/* Quick consonant swap shortcut buttons */}
-              <div style={{ marginTop: '0.6rem' }}>
-                <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginBottom: '0.3rem', fontWeight: '500' }}>
-                  ⚡ ઝડપી અક્ષર બદલો (Quick Swap):
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="editStockQty">
+                    જથ્થો
+                    <span className="form-sublabel"> Quantity</span>
+                  </label>
+                  <input
+                    id="editStockQty"
+                    type="number"
+                    min="0"
+                    step="any"
+                    className="form-input"
+                    value={editStockQuantity}
+                    onChange={(e) => setEditStockQuantity(e.target.value)}
+                    required
+                  />
                 </div>
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {[
-                    ['બ', 'ભ'],
-                    ['ક', 'ખ'],
-                    ['ગ', 'ઘ'],
-                    ['ડ', 'ઢ'],
-                    ['પ', 'ફ'],
-                    ['ત', 'થ'],
-                  ].map(([a, b]) => (
-                    <button
-                      key={`${a}-${b}`}
-                      type="button"
-                      onClick={() => handleSwapConsonantPair(a, b)}
-                      style={{
-                        padding: '0.25rem 0.55rem',
-                        fontSize: '0.8rem',
-                        borderRadius: '6px',
-                        border: '1px solid rgba(240, 198, 116, 0.3)',
-                        backgroundColor: 'rgba(240, 198, 116, 0.1)',
-                        color: '#F0C674',
-                        cursor: 'pointer',
-                        fontWeight: '600',
-                      }}
-                      title={`Swap ${a} ↔ ${b}`}
-                    >
-                      {a} ↔ {b}
-                    </button>
-                  ))}
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="editStockUnit">
+                    એકમ
+                    <span className="form-sublabel"> Unit</span>
+                  </label>
+                  <select
+                    id="editStockUnit"
+                    className="form-select"
+                    value={editStockUnit}
+                    onChange={(e) => setEditStockUnit(e.target.value)}
+                  >
+                    <option value="packet">પેકેટ (packet)</option>
+                    <option value="piece">પીસ (piece)</option>
+                    <option value="kg">કિલો (kg)</option>
+                    <option value="gram">ગ્રામ (gram)</option>
+                    <option value="liter">લીટર (liter)</option>
+                    <option value="box">બોક્સ (box)</option>
+                  </select>
                 </div>
               </div>
-            </div>
 
-            <div className="form-group">
-              <label className="form-label" htmlFor="editPhone">
-                મોબાઇલ નંબર
-                <span className="form-sublabel"> Phone Number (Optional)</span>
-              </label>
-              <input
-                id="editPhone"
-                type="tel"
-                className="form-input"
-                placeholder="9876543210"
-                value={editPhone}
-                onChange={(e) => setEditPhone(e.target.value)}
-              />
-            </div>
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setScreenState(SCREEN_STATE.CONFIRMATION)}
+                >
+                  રદ કરો / Cancel
+                </button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+                  <Save size={20} />
+                  સેવ કરો / Save
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleSaveEdit}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="editCustomer">
+                  ગ્રાહકનું નામ
+                  <span className="form-sublabel"> Customer Name</span>
+                </label>
+                <input
+                  ref={editCustomerNameInputRef}
+                  id="editCustomer"
+                  type="text"
+                  className="form-input"
+                  value={editCustomerName}
+                  onChange={(e) => setEditCustomerName(e.target.value)}
+                  required
+                />
 
-            <div className="form-group">
-              <label className="form-label" htmlFor="editAmount">
-                રકમ (₹)
-                <span className="form-sublabel"> Amount in Rupees</span>
-              </label>
-              <input
-                id="editAmount"
-                type="number"
-                min="0"
-                step="any"
-                className="form-input"
-                value={editAmount}
-                onChange={(e) => setEditAmount(e.target.value)}
-                required
-              />
-            </div>
+                {/* Quick consonant swap shortcut buttons */}
+                <div style={{ marginTop: '0.6rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginBottom: '0.3rem', fontWeight: '500' }}>
+                    ⚡ ઝડપી અક્ષર બદલો (Quick Swap):
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {[
+                      ['બ', 'ભ'],
+                      ['ક', 'ખ'],
+                      ['ગ', 'ઘ'],
+                      ['ડ', 'ઢ'],
+                      ['પ', 'ફ'],
+                      ['ત', 'થ'],
+                    ].map(([a, b]) => (
+                      <button
+                        key={`${a}-${b}`}
+                        type="button"
+                        onClick={() => handleSwapConsonantPair(a, b)}
+                        style={{
+                          padding: '0.25rem 0.55rem',
+                          fontSize: '0.8rem',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(240, 198, 116, 0.3)',
+                          backgroundColor: 'rgba(240, 198, 116, 0.1)',
+                          color: '#F0C674',
+                          cursor: 'pointer',
+                          fontWeight: '600',
+                        }}
+                        title={`Swap ${a} ↔ ${b}`}
+                      >
+                        {a} ↔ {b}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
-            <div className="form-group">
-              <label className="form-label" htmlFor="editTxType">
-                પ્રકાર
-                <span className="form-sublabel"> Action Type</span>
-              </label>
-              <select
-                id="editTxType"
-                className="form-select"
-                value={editTxType}
-                onChange={(e) => setEditTxType(e.target.value)}
-              >
-                <option value="udhaar_add">ઉધાર ઉમેરો (Udhaar Add)</option>
-                <option value="udhaar_paid">ઉધાર જમા (Paid Back)</option>
-                <option value="sale">રોકડ વેચાણ (Cash Sale)</option>
-              </select>
-            </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="editPhone">
+                  મોબાઇલ નંબર
+                  <span className="form-sublabel"> Phone Number (Optional)</span>
+                </label>
+                <input
+                  id="editPhone"
+                  type="tel"
+                  className="form-input"
+                  placeholder="9876543210"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                />
+              </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{ flex: 1 }}
-                onClick={() => setScreenState(SCREEN_STATE.CONFIRMATION)}
-              >
-                રદ કરો / Cancel
-              </button>
-              <button type="submit" className="btn-primary" style={{ flex: 1 }}>
-                <Save size={20} />
-                સેવ કરો / Save
-              </button>
-            </div>
-          </form>
+              <div className="form-group">
+                <label className="form-label" htmlFor="editAmount">
+                  રકમ (₹)
+                  <span className="form-sublabel"> Amount in Rupees</span>
+                </label>
+                <input
+                  id="editAmount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  className="form-input"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="editTxType">
+                  પ્રકાર
+                  <span className="form-sublabel"> Action Type</span>
+                </label>
+                <select
+                  id="editTxType"
+                  className="form-select"
+                  value={editTxType}
+                  onChange={(e) => setEditTxType(e.target.value)}
+                >
+                  <option value="udhaar_add">ઉધાર ઉમેરો (Udhaar Add)</option>
+                  <option value="udhaar_paid">ઉધાર જમા (Paid Back)</option>
+                  <option value="sale">રોકડ વેચાણ (Cash Sale)</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setScreenState(SCREEN_STATE.CONFIRMATION)}
+                >
+                  રદ કરો / Cancel
+                </button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+                  <Save size={20} />
+                  સેવ કરો / Save
+                </button>
+              </div>
+            </form>
+          )}
         </motion.div>
       )}
 
@@ -1131,8 +1398,28 @@ export default function HomeScreen() {
           <div className="success-banner" style={{ width: '100%' }}>
             Save ho gaya! / સેવ થઈ ગયું!
           </div>
+          {stockSuccessNote && (
+            <div
+              style={{
+                marginTop: '0.5rem',
+                fontSize: '0.95rem',
+                color: '#34D399',
+                backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(52, 211, 153, 0.3)',
+                padding: '0.4rem 0.8rem',
+                borderRadius: '8px',
+                fontWeight: '700',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+              }}
+            >
+              <Package size={16} color="#34D399" />
+              <span>{stockSuccessNote}</span>
+            </div>
+          )}
           <p style={{ color: '#94A3B8', fontSize: '1rem', textAlign: 'center', fontWeight: '500' }}>
-            ટ્રાન્ઝેક્શન સફળતાપૂર્વક ઉમેરાઈ ગયું છે.
+            {parsedData?.isStock ? 'સ્ટોક સફળતાપૂર્વક અપડેટ થયો છે.' : 'ટ્રાન્ઝેક્શન સફળતાપૂર્વક ઉમેરાઈ ગયું છે.'}
           </p>
         </motion.div>
       )}

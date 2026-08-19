@@ -1,11 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Users, Bell, PieChart } from 'lucide-react';
+import { Home, Users, Bell, PieChart, Package } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function BottomNav() {
   const navItems = [
     { to: '/', label: 'હોમ / Home', icon: Home, end: true },
+    { to: '/inventory', label: 'સ્ટોક / Stock', icon: Package, end: false },
     { to: '/customers', label: 'ગ્રાહકો / Customers', icon: Users, end: false },
     { to: '/alerts', label: 'અલર્ટ્સ / Alerts', icon: Bell, end: false },
     { to: '/summary', label: 'તારણ / Summary', icon: PieChart, end: false },
