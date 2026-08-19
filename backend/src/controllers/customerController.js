@@ -16,7 +16,7 @@ const addOrUpdateCustomer = async (req, res) => {
     }
 
     const body = req.body || {};
-    const { customerId: providedCustomerId, shopkeeperId: providedShopkeeperId, name, phone, totalUdhaar } = body;
+    const { customerId: providedCustomerId, shopkeeperId: providedShopkeeperId, name, phone, totalUdhaar, reminderIntervalDays } = body;
 
     if (providedShopkeeperId && providedShopkeeperId !== authShopkeeperId) {
       return res.status(403).json({
@@ -47,22 +47,31 @@ const addOrUpdateCustomer = async (req, res) => {
 
     let customerData;
     if (existingDoc.exists) {
+      const existingData = existingDoc.data();
+      const intervalVal = typeof reminderIntervalDays === 'number' && !isNaN(reminderIntervalDays)
+        ? reminderIntervalDays
+        : (typeof existingData.reminderIntervalDays === 'number' ? existingData.reminderIntervalDays : 30);
+
       customerData = {
-        ...existingDoc.data(),
+        ...existingData,
         shopkeeperId: authShopkeeperId,
         name,
         phone,
-        totalUdhaar: typeof totalUdhaar === 'number' ? totalUdhaar : existingDoc.data().totalUdhaar || 0,
+        totalUdhaar: typeof totalUdhaar === 'number' ? totalUdhaar : existingData.totalUdhaar || 0,
+        reminderIntervalDays: intervalVal,
         updatedAt: new Date().toISOString(),
       };
       await customerRef.set(customerData, { merge: true });
     } else {
+      const intervalVal = typeof reminderIntervalDays === 'number' && !isNaN(reminderIntervalDays) ? reminderIntervalDays : 30;
+
       customerData = {
         customerId,
         shopkeeperId: authShopkeeperId,
         name,
         phone,
         totalUdhaar: initialUdhaar,
+        reminderIntervalDays: intervalVal,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -76,6 +85,7 @@ const addOrUpdateCustomer = async (req, res) => {
       name,
       phone,
       totalUdhaar: customerData.totalUdhaar,
+      reminderIntervalDays: customerData.reminderIntervalDays,
       data: customerData,
     });
   } catch (error) {
@@ -475,11 +485,162 @@ const markReminderSent = async (req, res) => {
   }
 };
 
+/**
+ * Helper to check if customer is due for payment reminder.
+ * Returns true if (days since last transaction >= reminderIntervalDays) AND (lastReminderSentAt is null OR older than 7 days).
+ *
+ * @param {Object} customer - Customer object with reminderIntervalDays, lastReminderSentAt, and daysSinceLastTransaction
+ * @returns {boolean}
+ */
+const isDueForReminder = (customer) => {
+  if (!customer) return false;
+
+  const interval = typeof customer.reminderIntervalDays === 'number' && !isNaN(customer.reminderIntervalDays)
+    ? customer.reminderIntervalDays
+    : 30;
+
+  let days = customer.daysSinceLastTransaction;
+  if (days === undefined || days === null || isNaN(days)) {
+    const nowMs = Date.now();
+    const lastActivityIso = customer.lastTransactionTimestamp || customer.lastActivityTimestamp || customer.updatedAt || customer.createdAt;
+    const lastActivityTime = lastActivityIso ? new Date(lastActivityIso).getTime() : nowMs;
+    const validActivityTime = isNaN(lastActivityTime) ? nowMs : lastActivityTime;
+    days = Math.floor(Math.max(0, nowMs - validActivityTime) / (24 * 60 * 60 * 1000));
+  }
+
+  if (days < interval) {
+    return false;
+  }
+
+  if (!customer.lastReminderSentAt) {
+    return true;
+  }
+
+  const lastSentMs = new Date(customer.lastReminderSentAt).getTime();
+  if (isNaN(lastSentMs)) {
+    return true;
+  }
+
+  const nowMs = Date.now();
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const daysSinceLastReminder = Math.floor((nowMs - lastSentMs) / MS_PER_DAY);
+
+  return daysSinceLastReminder >= 7;
+};
+
+/**
+ * GET /api/reminders/today or GET /api/reminders/today/:shopkeeperId
+ * Fetch customers with totalUdhaar > 0 for this shopkeeper who are due for a reminder according to isDueForReminder().
+ * Returns: { remindersToday: [{ customerId, name, phone, totalUdhaar, daysSinceLastTransaction, suggestedMessage }] }
+ */
+const getRemindersToday = async (req, res) => {
+  try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
+    const { shopkeeperId } = req.params;
+    if (shopkeeperId && shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    const customersSnapshot = await db
+      .collection('customers')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .get();
+
+    const pendingCustomers = [];
+    customersSnapshot.forEach((doc) => {
+      const data = doc.data();
+      const totalUdhaar = Number(data.totalUdhaar) || 0;
+      if (totalUdhaar > 0) {
+        pendingCustomers.push({ ...data, totalUdhaar });
+      }
+    });
+
+    if (pendingCustomers.length === 0) {
+      return res.status(200).json({ remindersToday: [] });
+    }
+
+    const txSnapshot = await db
+      .collection('transactions')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .get();
+
+    const latestTxMap = {};
+    txSnapshot.forEach((doc) => {
+      const tx = doc.data();
+      if (!tx.customerId || !tx.timestamp) return;
+
+      const txTime = new Date(tx.timestamp).getTime();
+      if (isNaN(txTime)) return;
+
+      if (!latestTxMap[tx.customerId] || txTime > latestTxMap[tx.customerId]) {
+        latestTxMap[tx.customerId] = txTime;
+      }
+    });
+
+    const nowMs = Date.now();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+    const remindersToday = [];
+
+    for (const cust of pendingCustomers) {
+      let lastActivityTime = latestTxMap[cust.customerId];
+      if (!lastActivityTime) {
+        const fallBackIso = cust.updatedAt || cust.createdAt;
+        lastActivityTime = fallBackIso ? new Date(fallBackIso).getTime() : nowMs;
+      }
+
+      if (isNaN(lastActivityTime)) {
+        lastActivityTime = nowMs;
+      }
+
+      const diffMs = Math.max(0, nowMs - lastActivityTime);
+      const daysSinceLastTransaction = Math.floor(diffMs / MS_PER_DAY);
+
+      const customerWithDays = {
+        ...cust,
+        daysSinceLastTransaction,
+      };
+
+      if (isDueForReminder(customerWithDays)) {
+        const suggestedMessage = `નમસ્તે ${cust.name}, તમારું ₹${cust.totalUdhaar} બાકી છે. કૃપા કરી જલ્દી ચૂકવો. આભાર! 🙏`;
+        remindersToday.push({
+          customerId: cust.customerId,
+          name: cust.name,
+          phone: cust.phone || '',
+          totalUdhaar: cust.totalUdhaar,
+          daysSinceLastTransaction,
+          suggestedMessage,
+        });
+      }
+    }
+
+    return res.status(200).json({ remindersToday });
+  } catch (error) {
+    console.error('Error fetching today reminders:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Failed to fetch today reminders',
+    });
+  }
+};
+
 module.exports = {
   addOrUpdateCustomer,
   getCustomersByShopkeeper,
   getSingleCustomer,
   getCustomerAlerts,
   getCustomerReminders,
+  getRemindersToday,
   markReminderSent,
+  isDueForReminder,
 };

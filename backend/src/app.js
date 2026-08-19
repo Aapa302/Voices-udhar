@@ -10,6 +10,7 @@ const voiceRoutes = require('./routes/voice');
 const billRoutes = require('./routes/bill');
 const summaryRoutes = require('./routes/summary');
 const inventoryRoutes = require('./routes/inventory');
+const reminderRoutes = require('./routes/reminders');
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use('/api/voice', voiceRoutes);
 app.use('/api/bill', billRoutes);
 app.use('/api/summary', summaryRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/reminders', reminderRoutes);
 
 // 404 handler
 app.use((req, res) => {

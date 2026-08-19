@@ -9,6 +9,7 @@ const {
   normalizeGujaratiPhonetics,
   findSuggestedCustomerName,
 } = require('../src/controllers/voiceController');
+const { isDueForReminder } = require('../src/controllers/customerController');
 
 describe('Voice Udhar API Integration Tests', () => {
   let shopkeeperId;
@@ -134,7 +135,7 @@ describe('Voice Udhar API Integration Tests', () => {
       otherApiKey = otherRes.body.data.apiKey;
     });
 
-    it('POST /api/customers should create a customer and enforce tenant isolation', async () => {
+    it('POST /api/customers should create a customer, store reminderIntervalDays default, and enforce tenant isolation', async () => {
       const res = await request(app)
         .post('/api/customers')
         .set('x-api-key', apiKey)
@@ -149,8 +150,23 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(res.body.data.shopkeeperId).toBe(shopkeeperId);
       expect(res.body.data.name).toBe('Ramesh Kumar');
       expect(res.body.data.totalUdhaar).toBe(150);
+      expect(res.body.data.reminderIntervalDays).toBe(30);
 
       customerId = res.body.data.customerId;
+
+      // Custom reminderIntervalDays
+      const customRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Custom Interval Customer',
+          phone: '9876500000',
+          totalUdhaar: 200,
+          reminderIntervalDays: 14,
+        });
+
+      expect(customRes.status).toBe(200);
+      expect(customRes.body.data.reminderIntervalDays).toBe(14);
 
       // Reject if shopkeeperId passed in body doesn't match authenticated key
       const badRes = await request(app)
@@ -302,6 +318,120 @@ describe('Voice Udhar API Integration Tests', () => {
       // Verify tenant isolation
       const forbiddenRes = await request(app)
         .get(`/api/customers/alerts/${otherShopkeeperId}`)
+        .set('x-api-key', apiKey);
+      expect(forbiddenRes.status).toBe(403);
+    });
+
+    it('GET /api/reminders/today/:shopkeeperId should fetch due reminders with custom/default intervals and 7-day cooldown', async () => {
+      const now = Date.now();
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+      // Customer 1: Default 30 days interval, last activity 35 days ago (DUE)
+      const c1Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Overdue Customer 1',
+          phone: '9876543210',
+          totalUdhaar: 0,
+          reminderIntervalDays: 30,
+        });
+      const c1Id = c1Res.body.data.customerId;
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: c1Id,
+          type: 'udhaar_add',
+          amount: 500,
+          timestamp: new Date(now - 35 * MS_PER_DAY).toISOString(),
+        });
+
+      // Customer 2: Custom 15 days interval, last activity 20 days ago (DUE)
+      const c2Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Overdue Customer 2',
+          phone: '9123456789',
+          totalUdhaar: 0,
+          reminderIntervalDays: 15,
+        });
+      const c2Id = c2Res.body.data.customerId;
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: c2Id,
+          type: 'udhaar_add',
+          amount: 300,
+          timestamp: new Date(now - 20 * MS_PER_DAY).toISOString(),
+        });
+
+      // Customer 3: 30 days interval, last activity 10 days ago (NOT DUE)
+      const c3Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Recent Customer 3',
+          phone: '9000000001',
+          totalUdhaar: 0,
+          reminderIntervalDays: 30,
+        });
+      const c3Id = c3Res.body.data.customerId;
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: c3Id,
+          type: 'udhaar_add',
+          amount: 400,
+          timestamp: new Date(now - 10 * MS_PER_DAY).toISOString(),
+        });
+
+      // Fetch today reminders
+      const remRes = await request(app)
+        .get(`/api/reminders/today/${shopkeeperId}`)
+        .set('x-api-key', apiKey);
+
+      expect(remRes.status).toBe(200);
+      expect(remRes.body).toHaveProperty('remindersToday');
+      expect(remRes.body.remindersToday.length).toBe(2);
+
+      const names = remRes.body.remindersToday.map(r => r.name);
+      expect(names).toContain('Overdue Customer 1');
+      expect(names).toContain('Overdue Customer 2');
+      expect(names).not.toContain('Recent Customer 3');
+
+      // Verify suggestedMessage format
+      const c1Rem = remRes.body.remindersToday.find(r => r.customerId === c1Id);
+      expect(c1Rem.suggestedMessage).toContain('Overdue Customer 1');
+      expect(c1Rem.suggestedMessage).toContain('500');
+
+      // Mark reminder sent for Customer 1
+      await request(app)
+        .post(`/api/customers/${c1Id}/reminder-sent`)
+        .set('x-api-key', apiKey);
+
+      // Fetch today reminders again (Customer 1 should now be filtered out due to 7-day cooldown)
+      const remRes2 = await request(app)
+        .get(`/api/reminders/today/${shopkeeperId}`)
+        .set('x-api-key', apiKey);
+
+      expect(remRes2.status).toBe(200);
+      expect(remRes2.body.remindersToday.length).toBe(1);
+      expect(remRes2.body.remindersToday[0].customerId).toBe(c2Id);
+
+      // Verify GET /api/reminders/today without shopkeeperId param
+      const defaultParamRes = await request(app)
+        .get('/api/reminders/today')
+        .set('x-api-key', apiKey);
+      expect(defaultParamRes.status).toBe(200);
+      expect(defaultParamRes.body.remindersToday.length).toBe(1);
+
+      // Verify tenant isolation
+      const forbiddenRes = await request(app)
+        .get(`/api/reminders/today/${otherShopkeeperId}`)
         .set('x-api-key', apiKey);
       expect(forbiddenRes.status).toBe(403);
     });
@@ -477,6 +607,70 @@ describe('Voice Udhar API Integration Tests', () => {
         .set('x-api-key', otherApiKey);
 
       expect(forbiddenRes.status).toBe(403);
+    });
+  });
+
+  describe('isDueForReminder Helper Unit Tests', () => {
+    it('returns true if daysSinceLastTransaction >= reminderIntervalDays and lastReminderSentAt is null', () => {
+      const customer = {
+        reminderIntervalDays: 30,
+        daysSinceLastTransaction: 35,
+        lastReminderSentAt: null,
+      };
+      expect(isDueForReminder(customer)).toBe(true);
+    });
+
+    it('returns false if daysSinceLastTransaction < reminderIntervalDays', () => {
+      const customer = {
+        reminderIntervalDays: 30,
+        daysSinceLastTransaction: 15,
+        lastReminderSentAt: null,
+      };
+      expect(isDueForReminder(customer)).toBe(false);
+    });
+
+    it('returns false if lastReminderSentAt was within 7 days', () => {
+      const now = Date.now();
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+      const customer = {
+        reminderIntervalDays: 30,
+        daysSinceLastTransaction: 40,
+        lastReminderSentAt: new Date(now - 3 * MS_PER_DAY).toISOString(),
+      };
+      expect(isDueForReminder(customer)).toBe(false);
+    });
+
+    it('returns true if lastReminderSentAt was 7 or more days ago', () => {
+      const now = Date.now();
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+      const customer = {
+        reminderIntervalDays: 30,
+        daysSinceLastTransaction: 40,
+        lastReminderSentAt: new Date(now - 8 * MS_PER_DAY).toISOString(),
+      };
+      expect(isDueForReminder(customer)).toBe(true);
+    });
+
+    it('defaults reminderIntervalDays to 30 if missing or invalid', () => {
+      const customer = {
+        daysSinceLastTransaction: 31,
+        lastReminderSentAt: null,
+      };
+      expect(isDueForReminder(customer)).toBe(true);
+
+      const customer2 = {
+        reminderIntervalDays: 'invalid',
+        daysSinceLastTransaction: 25,
+        lastReminderSentAt: null,
+      };
+      expect(isDueForReminder(customer2)).toBe(false);
+    });
+
+    it('returns false for null or undefined customer', () => {
+      expect(isDueForReminder(null)).toBe(false);
+      expect(isDueForReminder(undefined)).toBe(false);
     });
   });
 
