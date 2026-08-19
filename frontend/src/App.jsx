@@ -9,6 +9,7 @@ import CustomersScreen from './pages/CustomersScreen';
 import CustomerHistoryScreen from './pages/CustomerHistoryScreen';
 import AlertsScreen from './pages/AlertsScreen';
 import SummaryScreen from './pages/SummaryScreen';
+import InventoryScreen from './pages/InventoryScreen';
 import { Loader2, Sparkles } from 'lucide-react';
 
 function AnimatedRoutes() {
@@ -22,6 +23,14 @@ function AnimatedRoutes() {
           element={
             <PageWrapper>
               <HomeScreen />
+            </PageWrapper>
+          }
+        />
+        <Route
+          path="/inventory"
+          element={
+            <PageWrapper>
+              <InventoryScreen />
             </PageWrapper>
           }
         />
