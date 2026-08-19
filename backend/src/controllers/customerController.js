@@ -303,9 +303,183 @@ const getCustomerAlerts = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/customers/reminders or GET /api/customers/reminders/:shopkeeperId
+ * Fetch customers needing payment reminders (overdue >= 30 days and no reminder sent in past 7 days)
+ */
+const getCustomerReminders = async (req, res) => {
+  try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
+    const { shopkeeperId } = req.params;
+    if (shopkeeperId && shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Provided shopkeeperId does not match authenticated shopkeeper',
+      });
+    }
+
+    const daysThreshold = parseInt(req.query.days, 10) || 30;
+
+    const customersSnapshot = await db
+      .collection('customers')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .get();
+
+    const pendingCustomers = [];
+    customersSnapshot.forEach((doc) => {
+      const data = doc.data();
+      const totalUdhaar = Number(data.totalUdhaar) || 0;
+      if (totalUdhaar > 0) {
+        pendingCustomers.push({ ...data, totalUdhaar });
+      }
+    });
+
+    if (pendingCustomers.length === 0) {
+      return res.status(200).json({ remindersNeeded: [] });
+    }
+
+    const txSnapshot = await db
+      .collection('transactions')
+      .where('shopkeeperId', '==', authShopkeeperId)
+      .get();
+
+    const latestTxMap = {};
+    txSnapshot.forEach((doc) => {
+      const tx = doc.data();
+      if (!tx.customerId || !tx.timestamp) return;
+
+      const txTime = new Date(tx.timestamp).getTime();
+      if (isNaN(txTime)) return;
+
+      if (!latestTxMap[tx.customerId] || txTime > latestTxMap[tx.customerId]) {
+        latestTxMap[tx.customerId] = txTime;
+      }
+    });
+
+    const nowMs = Date.now();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+    const remindersNeeded = [];
+
+    for (const cust of pendingCustomers) {
+      // Check lastReminderSentAt tracking (don't re-suggest within 7 days)
+      if (cust.lastReminderSentAt) {
+        const lastSentMs = new Date(cust.lastReminderSentAt).getTime();
+        if (!isNaN(lastSentMs)) {
+          const daysSinceLastReminder = Math.floor((nowMs - lastSentMs) / MS_PER_DAY);
+          if (daysSinceLastReminder < 7) {
+            continue; // Skip if reminder was sent within last 7 days
+          }
+        }
+      }
+
+      let lastActivityTime = latestTxMap[cust.customerId];
+      if (!lastActivityTime) {
+        const fallBackIso = cust.updatedAt || cust.createdAt;
+        lastActivityTime = fallBackIso ? new Date(fallBackIso).getTime() : nowMs;
+      }
+
+      if (isNaN(lastActivityTime)) {
+        lastActivityTime = nowMs;
+      }
+
+      const diffMs = Math.max(0, nowMs - lastActivityTime);
+      const daysSinceLastTransaction = Math.floor(diffMs / MS_PER_DAY);
+
+      if (daysSinceLastTransaction >= daysThreshold) {
+        const suggestedMessage = `નમસ્તે ${cust.name}, તમારું ₹${cust.totalUdhaar} બાકી છે. કૃપા કરી જલ્દી ચૂકવો. આભાર! 🙏`;
+        remindersNeeded.push({
+          customerId: cust.customerId,
+          name: cust.name,
+          phone: cust.phone || '',
+          totalUdhaar: cust.totalUdhaar,
+          daysSinceLastTransaction,
+          suggestedMessage,
+        });
+      }
+    }
+
+    return res.status(200).json({ remindersNeeded });
+  } catch (error) {
+    console.error('Error fetching customer reminders:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Failed to fetch customer reminders',
+    });
+  }
+};
+
+/**
+ * POST /api/customers/:customerId/reminder-sent
+ * Mark reminder as sent for customer
+ */
+const markReminderSent = async (req, res) => {
+  try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
+    const { customerId } = req.params;
+    if (!customerId) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'customerId parameter is required',
+      });
+    }
+
+    const customerRef = db.collection('customers').doc(customerId);
+    const doc = await customerRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Customer not found',
+      });
+    }
+
+    if (doc.data().shopkeeperId !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Unauthorized access to customer',
+      });
+    }
+
+    const lastReminderSentAt = new Date().toISOString();
+    await customerRef.update({
+      lastReminderSentAt,
+      updatedAt: lastReminderSentAt,
+    });
+
+    return res.status(200).json({
+      message: 'Reminder marked as sent successfully',
+      customerId,
+      lastReminderSentAt,
+    });
+  } catch (error) {
+    console.error('Error marking reminder sent:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Failed to mark reminder sent',
+    });
+  }
+};
+
 module.exports = {
   addOrUpdateCustomer,
   getCustomersByShopkeeper,
   getSingleCustomer,
   getCustomerAlerts,
+  getCustomerReminders,
+  markReminderSent,
 };

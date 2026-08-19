@@ -107,3 +107,41 @@ export async function getCustomerAlerts(shopkeeperId, days = 15) {
   const data = await handleApiResponse(response, 'અલર્ટ્સ મેળવવામાં નિષ્ફળ / Failed to fetch customer alerts');
   return data || { highAmount: [], longPending: [] };
 }
+
+/**
+ * Get customer smart reminders needing follow-up (default >= 30 days).
+ * @param {string} shopkeeperId
+ * @param {number} days - threshold number of days (default 30)
+ * @returns {Promise<Object>} { remindersNeeded: [] }
+ */
+export async function getCustomerReminders(shopkeeperId, days = 30) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/customers/reminders/${shopkeeperId}?days=${days}`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  const data = await handleApiResponse(response, 'રીમાઇન્ડર્સ મેળવવામાં નિષ્ફળ / Failed to fetch customer reminders');
+  return data || { remindersNeeded: [] };
+}
+
+/**
+ * Mark reminder as sent for customer.
+ * @param {string} customerId
+ * @returns {Promise<Object>}
+ */
+export async function markReminderSent(customerId) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+
+  const response = await fetch(`${API_BASE_URL}/api/customers/${customerId}/reminder-sent`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  return await handleApiResponse(response, 'રીમાઇન્ડર માર્ક કરવામાં નિષ્ફળ / Failed to mark reminder sent');
+}

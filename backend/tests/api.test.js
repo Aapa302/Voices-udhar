@@ -305,6 +305,58 @@ describe('Voice Udhar API Integration Tests', () => {
         .set('x-api-key', apiKey);
       expect(forbiddenRes.status).toBe(403);
     });
+
+    it('GET /api/customers/reminders/:shopkeeperId and POST /api/customers/:customerId/reminder-sent should handle smart reminders flow', async () => {
+      const now = Date.now();
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+      // Customer with 35 days pending udhaar
+      const cRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Old Udhaar Customer',
+          phone: '9876543210',
+          totalUdhaar: 0,
+        });
+      const cId = cRes.body.data.customerId;
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: cId,
+          type: 'udhaar_add',
+          amount: 800,
+          timestamp: new Date(now - 35 * MS_PER_DAY).toISOString(),
+        });
+
+      // Fetch reminders
+      const remRes = await request(app)
+        .get(`/api/customers/reminders/${shopkeeperId}?days=30`)
+        .set('x-api-key', apiKey);
+
+      expect(remRes.status).toBe(200);
+      expect(remRes.body).toHaveProperty('remindersNeeded');
+      expect(remRes.body.remindersNeeded.length).toBe(1);
+      expect(remRes.body.remindersNeeded[0].name).toBe('Old Udhaar Customer');
+      expect(remRes.body.remindersNeeded[0].suggestedMessage).toContain('800');
+
+      // Mark reminder sent
+      const sentRes = await request(app)
+        .post(`/api/customers/${cId}/reminder-sent`)
+        .set('x-api-key', apiKey);
+
+      expect(sentRes.status).toBe(200);
+      expect(sentRes.body).toHaveProperty('lastReminderSentAt');
+
+      // Subsequent fetch within 7 days should skip this customer
+      const remRes2 = await request(app)
+        .get(`/api/customers/reminders/${shopkeeperId}?days=30`)
+        .set('x-api-key', apiKey);
+
+      expect(remRes2.status).toBe(200);
+      expect(remRes2.body.remindersNeeded.length).toBe(0);
+    });
   });
 
   describe('Transactions API', () => {

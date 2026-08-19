@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { processVoiceAudio, processVoiceQuery } from '../api/voice';
-import { getCustomers, createCustomer, getCustomerAlerts } from '../api/customers';
+import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, markReminderSent } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
 import BillModal from '../components/BillModal';
@@ -55,21 +55,64 @@ export default function HomeScreen() {
   const [pendingAlertCount, setPendingAlertCount] = useState(0);
   const [isAlertBannerDismissed, setIsAlertBannerDismissed] = useState(false);
 
+  // Smart Reminders state
+  const [reminders, setReminders] = useState([]);
+  const [currentReminderIndex, setCurrentReminderIndex] = useState(0);
+  const [isReminderDismissed, setIsReminderDismissed] = useState(false);
+
   useEffect(() => {
-    const fetchPendingAlertsCount = async () => {
+    const fetchPendingAlertsAndReminders = async () => {
       const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
       if (!shopkeeperId) return;
       try {
         const alertsData = await getCustomerAlerts(shopkeeperId, 15);
         const count = (alertsData.longPending && alertsData.longPending.length) || 0;
         setPendingAlertCount(count);
+
+        const remindersData = await getCustomerReminders(shopkeeperId, 30);
+        if (remindersData && remindersData.remindersNeeded) {
+          setReminders(remindersData.remindersNeeded);
+        }
       } catch (err) {
-        console.error('Failed to fetch alerts count for banner:', err);
+        console.error('Failed to fetch alerts/reminders for home screen:', err);
       }
     };
 
-    fetchPendingAlertsCount();
+    fetchPendingAlertsAndReminders();
   }, []);
+
+  const handleSendReminder = async (reminder) => {
+    if (!reminder) return;
+    if (reminder.phone && reminder.phone !== '0000000000') {
+      const cleanPhone = reminder.phone.replace(/\D/g, '');
+      const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(reminder.suggestedMessage)}`;
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      alert(`મોબાઇલ નંબર મળ્યો નથી. મેસેજ: "${reminder.suggestedMessage}"`);
+    }
+
+    try {
+      await markReminderSent(reminder.customerId);
+    } catch (err) {
+      console.error('Failed to mark reminder sent:', err);
+    }
+
+    // Move to next reminder in queue if available
+    if (currentReminderIndex < reminders.length - 1) {
+      setCurrentReminderIndex((prev) => prev + 1);
+    } else {
+      setIsReminderDismissed(true);
+    }
+  };
+
+  const handleLaterReminder = () => {
+    if (currentReminderIndex < reminders.length - 1) {
+      setCurrentReminderIndex((prev) => prev + 1);
+    } else {
+      setIsReminderDismissed(true);
+    }
+  };
 
   // Query mode state
   const [isQueryMode, setIsQueryMode] = useState(false);
@@ -526,6 +569,77 @@ export default function HomeScreen() {
             >
               <X size={16} />
             </button>
+          </div>
+        </motion.div>
+      )}
+
+      {/* SMART PROACTIVE REMINDER SUGGESTION CARD */}
+      {!isReminderDismissed && reminders.length > 0 && currentReminderIndex < reminders.length && screenState === SCREEN_STATE.IDLE && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            backgroundColor: 'rgba(124, 58, 237, 0.15)',
+            border: '1px solid rgba(240, 198, 116, 0.4)',
+            borderRadius: 'var(--radius-md)',
+            padding: '1rem',
+            marginBottom: '1rem',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 4px 15px rgba(124, 58, 237, 0.2)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', marginBottom: '0.75rem' }}>
+            <Sparkles size={22} color="#F0C674" style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <div style={{ fontSize: '0.95rem', color: '#F8FAFC', fontWeight: '800', lineHeight: '1.3' }}>
+                💡 {reminders[currentReminderIndex].name}ને {reminders[currentReminderIndex].daysSinceLastTransaction} દિવસથી યાદ નથી અપાવ્યું. Reminder મોકલવો છે?
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginTop: '0.2rem', fontStyle: 'italic' }}>
+                "{reminders[currentReminderIndex].suggestedMessage}"
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.6rem' }}>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => handleSendReminder(reminders[currentReminderIndex])}
+              style={{
+                flex: 1,
+                padding: '0.55rem 0.8rem',
+                borderRadius: '8px',
+                border: '1px solid rgba(34, 197, 94, 0.5)',
+                backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                color: '#4ADE80',
+                fontWeight: '700',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.35rem',
+              }}
+            >
+              <MessageSquare size={16} />
+              હા, મોકલો / Yes, Send
+            </motion.button>
+
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handleLaterReminder}
+              style={{
+                padding: '0.55rem 0.9rem',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                color: '#94A3B8',
+                fontWeight: '600',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+              }}
+            >
+              પછી / Later
+            </motion.button>
           </div>
         </motion.div>
       )}
