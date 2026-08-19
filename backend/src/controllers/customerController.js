@@ -634,6 +634,79 @@ const getRemindersToday = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/reminders/batch-sent
+ * Mark payment reminders as sent for multiple customers in a single batch Firestore write.
+ * Body: { customerIds: [...] }
+ * Scoped strictly to the authenticated shopkeeper.
+ */
+const markBatchRemindersSent = async (req, res) => {
+  try {
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+    if (!authShopkeeperId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authenticated shopkeeper required',
+      });
+    }
+
+    const { customerIds } = req.body || {};
+    if (!Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'customerIds must be a non-empty array',
+      });
+    }
+
+    const uniqueCustomerIds = [...new Set(customerIds.filter((id) => typeof id === 'string' && id.trim()))];
+
+    if (uniqueCustomerIds.length === 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'customerIds must contain valid customer ID strings',
+      });
+    }
+
+    const validCustomerRefs = [];
+    const updatedCustomerIds = [];
+
+    for (const id of uniqueCustomerIds) {
+      const custRef = db.collection('customers').doc(id);
+      const doc = await custRef.get();
+      if (doc.exists && doc.data().shopkeeperId === authShopkeeperId) {
+        validCustomerRefs.push(custRef);
+        updatedCustomerIds.push(id);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+
+    if (validCustomerRefs.length > 0) {
+      const batch = db.batch();
+      for (const custRef of validCustomerRefs) {
+        batch.update(custRef, {
+          lastReminderSentAt: nowIso,
+          updatedAt: nowIso,
+        });
+      }
+      await batch.commit();
+    }
+
+    return res.status(200).json({
+      message: 'Batch reminders marked as sent successfully',
+      updatedCount: updatedCustomerIds.length,
+      lastReminderSentAt: nowIso,
+      updatedCustomerIds,
+    });
+  } catch (error) {
+    console.error('Error marking batch reminders sent:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Failed to mark batch reminders as sent',
+    });
+  }
+};
+
 module.exports = {
   addOrUpdateCustomer,
   getCustomersByShopkeeper,
@@ -642,5 +715,6 @@ module.exports = {
   getCustomerReminders,
   getRemindersToday,
   markReminderSent,
+  markBatchRemindersSent,
   isDueForReminder,
 };
