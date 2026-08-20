@@ -7,7 +7,7 @@ import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, 
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
 import { getInventoryApi, addOrUpdateInventoryApi } from '../api/inventory';
-import { savePendingRecording, getPendingRecordingsCount } from '../utils/offlineQueue';
+import { savePendingRecording, getPendingRecordingsCount, getAllPendingRecordings, deletePendingRecording } from '../utils/offlineQueue';
 import BillModal from '../components/BillModal';
 import { Package } from 'lucide-react';
 
@@ -59,10 +59,149 @@ export default function HomeScreen() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
 
+  // Sync state
+  const [syncQueue, setSyncQueue] = useState([]);
+  const [currentSyncIndex, setCurrentSyncIndex] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [currentSyncItem, setCurrentSyncItem] = useState(null);
+
   const updateOfflineCount = async () => {
     const shopId = localStorage.getItem('voice_udhar_shop_id');
     const count = await getPendingRecordingsCount(shopId);
     setPendingOfflineCount(count);
+  };
+
+  // Start Sync Process
+  const startOfflineSync = async (specificQueue = null) => {
+    if (isSyncing || !navigator.onLine) return;
+
+    let itemsToSync = specificQueue;
+    if (!itemsToSync) {
+      const activeShopId = localStorage.getItem('voice_udhar_shop_id');
+      const allPending = await getAllPendingRecordings();
+      itemsToSync = allPending.filter((item) => !item.shopId || !activeShopId || item.shopId === activeShopId);
+    }
+
+    if (!itemsToSync || itemsToSync.length === 0) {
+      setIsSyncing(false);
+      setSyncQueue([]);
+      setCurrentSyncIndex(0);
+      setCurrentSyncItem(null);
+      await updateOfflineCount();
+      return;
+    }
+
+    // Sort oldest first by timestamp or createdAt or id
+    itemsToSync.sort((a, b) => {
+      const timeA = new Date(a.timestamp || a.createdAt || a.id).getTime();
+      const timeB = new Date(b.timestamp || b.createdAt || b.id).getTime();
+      return timeA - timeB;
+    });
+
+    setSyncQueue(itemsToSync);
+    setCurrentSyncIndex(0);
+    setIsSyncing(true);
+    processNextSyncItem(itemsToSync, 0);
+  };
+
+  // Process item at index
+  const processNextSyncItem = async (queue, index) => {
+    if (index >= queue.length) {
+      setIsSyncing(false);
+      setSyncQueue([]);
+      setCurrentSyncIndex(0);
+      setCurrentSyncItem(null);
+      await updateOfflineCount();
+      resetToIdle();
+      return;
+    }
+
+    const item = queue[index];
+    setCurrentSyncItem(item);
+    setCurrentSyncIndex(index);
+    setScreenState(SCREEN_STATE.PROCESSING);
+    setErrorMessage('');
+
+    try {
+      if (item.isQueryMode) {
+        const queryRes = await processVoiceQuery(item.audioBase64, item.mimeType || 'audio/webm');
+        if (!queryRes || queryRes.isQuery === false) {
+          setErrorMessage(queryRes?.message || 'આ ટ્રાન્ઝેક્શન છે. / This is a transaction.');
+          setScreenState(SCREEN_STATE.ERROR);
+          return;
+        }
+        setQueryResult(queryRes);
+        setScreenState(SCREEN_STATE.QUERY_RESPONSE);
+        return;
+      }
+
+      const result = await processVoiceAudio(item.audioBase64, item.mimeType || 'audio/webm');
+
+      if (!result || result.intent === 'unclear' || (result.confidence === 'low' && !result.customer_name && !result.amount)) {
+        setErrorMessage('સંભળાયું નથી, ફરી બોલો / Sunai nahi diya, phir se bolo');
+        setScreenState(SCREEN_STATE.ERROR);
+        return;
+      }
+
+      const isStockIntent = result.intent === 'add_stock' || result.intent === 'reduce_stock';
+
+      if (isStockIntent) {
+        const stockItemName = result.stock_item_name || (result.items && result.items[0]) || 'વસ્તુ (Item)';
+        const quantity = result.quantity || 1;
+        const unit = result.unit || 'packet';
+
+        setParsedData({
+          isStock: true,
+          intent: result.intent,
+          stockItemName,
+          quantity,
+          unit,
+          transcription: result.transcription_gujarati || '',
+          detectedLanguage: result.detectedLanguage || 'gujarati',
+          originalTimestamp: item.timestamp || item.createdAt,
+        });
+
+        setEditStockItemName(stockItemName);
+        setEditStockQuantity(quantity.toString());
+        setEditStockUnit(unit);
+
+        setScreenState(SCREEN_STATE.CONFIRMATION);
+        return;
+      }
+
+      const txType = mapIntentToTxType(result.intent);
+      const customerName = result.customer_name || 'ગ્રાહક (Unknown)';
+      const amount = result.amount || 0;
+      const phone = result.customer_phone || '';
+      const suggestedName = result.suggested_customer_name || null;
+      const nameConfidence = result.name_confidence || result.confidence || 'high';
+      const detectedLanguage = result.detectedLanguage || 'gujarati';
+
+      setParsedData({
+        isStock: false,
+        customerName,
+        suggestedName,
+        nameConfidence,
+        amount,
+        txType,
+        phone,
+        items: result.items || [],
+        transcription: result.transcription_gujarati || '',
+        detectedLanguage,
+        originalTimestamp: item.timestamp || item.createdAt,
+      });
+
+      setEditCustomerName(customerName);
+      setEditAmount(amount.toString());
+      setEditPhone(phone);
+      setEditTxType(txType);
+
+      setScreenState(SCREEN_STATE.CONFIRMATION);
+    } catch (apiErr) {
+      console.error('Error processing queued offline voice note:', apiErr);
+      setErrorMessage(apiErr.message || 'સિંક પ્રોસેસ કરવામાં ભૂલ આવી / Sync processing error');
+      setScreenState(SCREEN_STATE.ERROR);
+    }
   };
 
   // Pending udhaar alerts state & low stock alerts state for Home screen banner
@@ -112,7 +251,22 @@ export default function HomeScreen() {
     fetchPendingAlertsAndReminders();
     updateOfflineCount();
 
-    const handleOnline = () => setIsOnline(true);
+    const checkAndAutoSync = async () => {
+      if (navigator.onLine) {
+        const count = await getPendingRecordingsCount(localStorage.getItem('voice_udhar_shop_id'));
+        if (count > 0 && !isSyncing) {
+          startOfflineSync();
+        }
+      }
+    };
+
+    checkAndAutoSync();
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      startOfflineSync();
+    };
+
     const handleOffline = () => setIsOnline(false);
 
     const handleShopChanged = () => {
@@ -460,12 +614,21 @@ export default function HomeScreen() {
         mode: 'add',
       });
 
+      if (isSyncing && currentSyncItem) {
+        await deletePendingRecording(currentSyncItem.id);
+        await updateOfflineCount();
+      }
+
       setStockSuccessNote(`સ્ટોક અપડેટ થયો: ${cleanItemName} ${isReduce ? '-' : '+'}${numQty} ${finalUnit || 'packet'}`);
       setScreenState(SCREEN_STATE.SUCCESS);
 
       setTimeout(() => {
-        resetToIdle();
-      }, 2500);
+        if (isSyncing) {
+          processNextSyncItem(syncQueue, currentSyncIndex + 1);
+        } else {
+          resetToIdle();
+        }
+      }, 2000);
     } catch (err) {
       console.error('Error saving stock:', err);
       setErrorMessage(err.message || 'સ્ટોક સેવ કરવામાં ભૂલ આવી / Failed to save stock');
@@ -531,7 +694,7 @@ export default function HomeScreen() {
         });
       }
 
-      // Log transaction
+      // Log transaction preserving original recording timestamp if available
       await logTransaction({
         shopkeeperId,
         customerId: customer.customerId,
@@ -540,7 +703,13 @@ export default function HomeScreen() {
         items: parsedData?.items || [],
         rawVoiceText: parsedData?.transcription || '',
         detectedLanguage: parsedData?.detectedLanguage || 'gujarati',
+        timestamp: parsedData?.originalTimestamp || undefined,
       });
+
+      if (isSyncing && currentSyncItem) {
+        await deletePendingRecording(currentSyncItem.id);
+        await updateOfflineCount();
+      }
 
       if (finalTxType === 'sale' && parsedData?.items && parsedData.items.length > 0) {
         const itemsStr = Array.isArray(parsedData.items) ? parsedData.items.join(', ') : parsedData.items;
@@ -568,12 +737,14 @@ export default function HomeScreen() {
 
       setScreenState(SCREEN_STATE.SUCCESS);
 
-      // Auto reset after 2.5 seconds if modal is not open
+      // Auto reset or proceed to next sync item
       setTimeout(() => {
-        if (!showBillModal) {
+        if (isSyncing) {
+          processNextSyncItem(syncQueue, currentSyncIndex + 1);
+        } else if (!showBillModal) {
           resetToIdle();
         }
-      }, 2500);
+      }, 2000);
     } catch (err) {
       console.error('Error saving transaction:', err);
       setErrorMessage(err.message || 'ટ્રાન્ઝેક્શન સેવ કરવામાં ભૂલ આવી / Failed to save transaction');
@@ -665,6 +836,10 @@ export default function HomeScreen() {
       window.speechSynthesis.cancel();
     }
     setIsSpeakingQuery(false);
+    setIsSyncing(false);
+    setSyncQueue([]);
+    setCurrentSyncIndex(0);
+    setCurrentSyncItem(null);
     setScreenState(SCREEN_STATE.IDLE);
     setErrorMessage('');
     setParsedData(null);
@@ -711,7 +886,7 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* PENDING OFFLINE RECORDINGS QUEUED INDICATOR */}
+      {/* PENDING OFFLINE RECORDINGS QUEUED INDICATOR & MANUAL SYNC BUTTON */}
       {pendingOfflineCount > 0 && screenState === SCREEN_STATE.IDLE && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -724,6 +899,7 @@ export default function HomeScreen() {
             marginBottom: '1rem',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
             gap: '0.6rem',
             color: '#F0C674',
             fontSize: '0.9rem',
@@ -731,13 +907,39 @@ export default function HomeScreen() {
             backdropFilter: 'blur(10px)',
           }}
         >
-          <CloudOff size={20} color="#F0C674" style={{ flexShrink: 0 }} />
-          <div>
-            <div>⏳ {pendingOfflineCount} રેકોર્ડિંગ પ્રોસેસ થવાના બાકી છે</div>
-            <div style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: '500' }}>
-              {pendingOfflineCount} {pendingOfflineCount === 1 ? 'recording' : 'recordings'} pending processing
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <CloudOff size={20} color="#F0C674" style={{ flexShrink: 0 }} />
+            <div>
+              <div>⏳ {pendingOfflineCount} રેકોર્ડિંગ પ્રોસેસ થવાના બાકી છે</div>
+              <div style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: '500' }}>
+                {pendingOfflineCount} {pendingOfflineCount === 1 ? 'recording' : 'recordings'} pending processing
+              </div>
             </div>
           </div>
+
+          {isOnline && (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => startOfflineSync()}
+              style={{
+                backgroundColor: 'rgba(240, 198, 116, 0.25)',
+                border: '1px solid rgba(240, 198, 116, 0.6)',
+                color: '#F8FAFC',
+                padding: '0.45rem 0.85rem',
+                borderRadius: '8px',
+                fontSize: '0.85rem',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                flexShrink: 0,
+              }}
+            >
+              <RotateCcw size={15} />
+              હવે સિંક કરો / Sync Now
+            </motion.button>
+          )}
         </motion.div>
       )}
 
@@ -1042,16 +1244,61 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
+      {/* SYNC PROGRESS INDICATOR */}
+      {isSyncing && syncQueue.length > 0 && (
+        <div style={{
+          backgroundColor: 'rgba(124, 58, 237, 0.2)',
+          border: '1px solid rgba(240, 198, 116, 0.5)',
+          borderRadius: 'var(--radius-md)',
+          padding: '0.6rem 1rem',
+          marginBottom: '1rem',
+          textAlign: 'center',
+          color: '#F0C674',
+          fontWeight: '800',
+          fontSize: '1rem',
+          backdropFilter: 'blur(10px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '0.5rem',
+        }}>
+          <Sparkles size={18} color="#F0C674" />
+          <span>સિંક થઈ રહ્યું છે... {currentSyncIndex + 1}/{syncQueue.length} (Syncing... {currentSyncIndex + 1}/{syncQueue.length})</span>
+        </div>
+      )}
+
       {/* 2. ERROR STATE ("Sunai nahi diya, phir se bolo") */}
       {screenState === SCREEN_STATE.ERROR && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card" style={{ textAlign: 'center' }}>
           <div className="error-banner">
             {errorMessage || 'સંભળાયું નથી, ફરી બોલો / Sunai nahi diya, phir se bolo'}
           </div>
-          <button className="btn-primary" onClick={resetToIdle} style={{ marginTop: '1rem' }}>
-            <RotateCcw size={22} />
-            ફરી બોલો / Try Again
-          </button>
+          {isSyncing ? (
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ flex: 1 }}
+                onClick={() => processNextSyncItem(syncQueue, currentSyncIndex)}
+              >
+                <RotateCcw size={20} />
+                ફરી પ્રયાસ કરો / Retry
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => processNextSyncItem(syncQueue, currentSyncIndex + 1)}
+              >
+                આ આગળ વધો / Skip
+              </button>
+            </div>
+          ) : (
+            <button className="btn-primary" onClick={resetToIdle} style={{ marginTop: '1rem' }}>
+              <RotateCcw size={22} />
+              ફરી બોલો / Try Again
+            </button>
+          )}
         </motion.div>
       )}
 
