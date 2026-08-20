@@ -8,6 +8,8 @@ const {
   compareVersions,
   isNonTransientError,
   resetCache,
+  resetModelFailureCounts,
+  getModelFailureCount,
   DEFAULT_CANDIDATE_MODELS,
 } = require('../src/config/geminiModelResolver');
 
@@ -247,7 +249,7 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       logSpy.mockRestore();
     });
 
-    test('deprioritizes models with 2 or more consecutive failures in candidate ordering', async () => {
+    test('skips models with 2 or more consecutive failures and logs skipping message', async () => {
       process.env.GEMINI_API_KEY = 'test-key';
 
       const error503 = { status: 503, message: 'Server Overloaded' };
@@ -263,23 +265,87 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
 
       // Call 1: Model 0 fails, Model 1 succeeds -> Model 0 failure count = 1
       await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(1, { model: DEFAULT_CANDIDATE_MODELS[0] });
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
 
       mockGenAI.getGenerativeModel.mockClear();
 
       // Call 2: Model 0 fails again, Model 1 succeeds -> Model 0 failure count = 2
       await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(1, { model: DEFAULT_CANDIDATE_MODELS[0] });
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(2);
 
       mockGenAI.getGenerativeModel.mockClear();
 
-      // Call 3: Model 0 now has 2 consecutive failures and should be DEPRIORITIZED!
-      // The primary call should now be Model 1 (DEFAULT_CANDIDATE_MODELS[1])
+      // Call 3: Model 0 now has 2 consecutive failures and MUST BE SKIPPED completely!
+      // It should NOT be called at all, and log "Skipping ..." should be printed.
       const generateFnAllOk = jest.fn().mockResolvedValue({ response: { text: () => 'Success' } });
       const result3 = await generateWithFallback(mockGenAI, generateFnAllOk, { retryDelayMs: 0 });
 
       expect(result3.response.text()).toBe('Success');
+      expect(mockGenAI.getGenerativeModel).toHaveBeenCalledTimes(1);
       expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(1, { model: DEFAULT_CANDIDATE_MODELS[1] });
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`[Gemini] Skipping ${DEFAULT_CANDIDATE_MODELS[0]} — failed 2 consecutive times, will retry after cooldown`)
+      );
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    test('resets failure count to 0 when a model succeeds once', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const generateFnFailFirst = jest.fn((model) => {
+        if (model.modelName === DEFAULT_CANDIDATE_MODELS[0]) {
+          return Promise.reject({ status: 503, message: 'Transient 503' });
+        }
+        return Promise.resolve({ response: { text: () => 'Model 2 OK' } });
+      });
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[1])).toBe(0);
+
+      // Now Model 0 succeeds
+      const generateFnFirstOk = jest.fn().mockResolvedValue({ response: { text: () => 'Model 0 Succeeded' } });
+      await generateWithFallback(mockGenAI, generateFnFirstOk, { retryDelayMs: 0 });
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(0);
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    test('resetModelFailureCounts clears failure map and allows model to be retried', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const error503 = { status: 503, message: 'Server Overloaded' };
+      const generateFnFailFirst = jest.fn((model) => {
+        if (model.modelName === DEFAULT_CANDIDATE_MODELS[0]) {
+          return Promise.reject(error503);
+        }
+        return Promise.resolve({ response: { text: () => 'Model 2 OK' } });
+      });
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Cause Model 0 to fail twice
+      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
+      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(2);
+
+      // Reset failure counts manually (mimicking 10-min cooldown timer)
+      resetModelFailureCounts();
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(0);
+
+      // Next request should attempt Model 0 again
+      mockGenAI.getGenerativeModel.mockClear();
+      const generateFnAllOk = jest.fn().mockResolvedValue({ response: { text: () => 'Success' } });
+      await generateWithFallback(mockGenAI, generateFnAllOk, { retryDelayMs: 0 });
+
+      expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(1, { model: DEFAULT_CANDIDATE_MODELS[0] });
 
       warnSpy.mockRestore();
       logSpy.mockRestore();

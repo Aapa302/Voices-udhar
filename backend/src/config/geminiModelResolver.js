@@ -10,6 +10,22 @@ let cachedCandidateModels = null;
 // Map of modelName -> number of consecutive failures during this server session
 const modelFailureCounts = new Map();
 
+// 10-minute cooldown interval to reset all model failure counts
+const COOLDOWN_RESET_INTERVAL_MS = 10 * 60 * 1000;
+
+function resetModelFailureCounts() {
+  modelFailureCounts.clear();
+  console.log('[Gemini] All model failure counts reset (cooldown timer / cache reset)');
+}
+
+const cooldownTimer = setInterval(() => {
+  resetModelFailureCounts();
+}, COOLDOWN_RESET_INTERVAL_MS);
+
+if (cooldownTimer && typeof cooldownTimer.unref === 'function') {
+  cooldownTimer.unref();
+}
+
 function recordModelSuccess(modelName) {
   if (!modelName) return;
   modelFailureCounts.set(modelName, 0);
@@ -21,21 +37,8 @@ function recordModelFailure(modelName) {
   modelFailureCounts.set(modelName, current + 1);
 }
 
-function getOrderedCandidates(baseCandidates) {
-  if (!Array.isArray(baseCandidates) || baseCandidates.length === 0) return [];
-  const healthy = [];
-  const deprioritized = [];
-
-  for (const model of baseCandidates) {
-    const failures = modelFailureCounts.get(model) || 0;
-    if (failures >= 2) {
-      deprioritized.push(model);
-    } else {
-      healthy.push(model);
-    }
-  }
-
-  return [...healthy, ...deprioritized];
+function getModelFailureCount(modelName) {
+  return modelFailureCounts.get(modelName) || 0;
 }
 
 /**
@@ -206,31 +209,44 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Calls Gemini API with fallback retry logic across candidate models.
+ * Skips models that have failed 2+ consecutive times in this server session.
  * @param {GoogleGenerativeAI} genAI - The initialized GoogleGenerativeAI instance
  * @param {Function} generateContentFn - Async callback receiving a initialized model instance: async (model) => ...
- * @param {Object} options - Optional config { retryDelayMs }
+ * @param {Object} options - Optional config { retryDelayMs, timeoutMs }
  */
 async function generateWithFallback(genAI, generateContentFn, options = {}) {
   const candidatesStart = Date.now();
   const rawCandidates = await getCandidateModels();
-  const candidates = getOrderedCandidates(rawCandidates);
   const candidatesDuration = Date.now() - candidatesStart;
   const retryDelayMs = options.retryDelayMs !== undefined ? options.retryDelayMs : 500;
   const attemptTimeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : 6000;
   let lastError = null;
 
-  const deprioritizedModels = rawCandidates.filter((m) => (modelFailureCounts.get(m) || 0) >= 2);
-  if (deprioritizedModels.length > 0) {
-    console.log(`[Gemini Model Resolver] Deprioritized models (2+ consecutive failures): [${deprioritizedModels.join(', ')}]`);
+  // Filter candidates to skip models with 2+ consecutive failures
+  let candidatesToAttempt = rawCandidates.filter((model) => (modelFailureCounts.get(model) || 0) < 2);
+
+  // If ALL candidates have failed 2+ times, reset failure counts so we don't permanently block requests
+  if (candidatesToAttempt.length === 0) {
+    console.warn('[Gemini] All candidate models have 2+ consecutive failures. Resetting failure counts to retry candidate list.');
+    resetModelFailureCounts();
+    candidatesToAttempt = [...rawCandidates];
   }
 
-  console.log(`[Gemini Candidate Resolution] Duration: ${candidatesDuration}ms | Ordered models: [${candidates.join(', ')}]`);
+  // Log skipped models
+  for (const modelName of rawCandidates) {
+    const failures = modelFailureCounts.get(modelName) || 0;
+    if (failures >= 2) {
+      console.log(`[Gemini] Skipping ${modelName} — failed ${failures} consecutive times, will retry after cooldown`);
+    }
+  }
 
-  for (let i = 0; i < candidates.length; i++) {
-    const modelName = candidates[i];
+  console.log(`[Gemini Candidate Resolution] Duration: ${candidatesDuration}ms | Active candidate models: [${candidatesToAttempt.join(', ')}]`);
+
+  for (let i = 0; i < candidatesToAttempt.length; i++) {
+    const modelName = candidatesToAttempt[i];
     const attemptStart = Date.now();
     const attemptStartISO = new Date(attemptStart).toISOString();
-    console.log(`[Gemini Call Attempt ${i + 1}/${candidates.length}] Started at ${attemptStartISO} | Model: ${modelName} | Timeout: ${attemptTimeoutMs / 1000}s`);
+    console.log(`[Gemini Call Attempt ${i + 1}/${candidatesToAttempt.length}] Started at ${attemptStartISO} | Model: ${modelName} | Timeout: ${attemptTimeoutMs / 1000}s`);
 
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
@@ -280,8 +296,8 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
         throw error;
       }
 
-      if (i < candidates.length - 1) {
-        console.log(`[Gemini Retry] Retrying request with next fallback model candidate (${candidates[i + 1]})...`);
+      if (i < candidatesToAttempt.length - 1) {
+        console.log(`[Gemini Retry] Retrying request with next fallback model candidate (${candidatesToAttempt[i + 1]})...`);
         if (retryDelayMs > 0) {
           await sleep(retryDelayMs);
         }
@@ -289,16 +305,16 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
     }
   }
 
-  console.error(`[Gemini] All candidate models (${candidates.join(', ')}) failed.`);
+  console.error(`[Gemini] All candidate models (${candidatesToAttempt.join(', ')}) failed.`);
   throw lastError || new Error('All Gemini candidate models failed to process request');
 }
 
 /**
- * Resets memory cache (primarily for unit testing).
+ * Resets memory cache and failure counts (primarily for unit testing).
  */
 function resetCache() {
   cachedCandidateModels = null;
-  modelFailureCounts.clear();
+  resetModelFailureCounts();
 }
 
 module.exports = {
@@ -311,5 +327,7 @@ module.exports = {
   compareVersions,
   isNonTransientError,
   resetCache,
+  resetModelFailureCounts,
+  getModelFailureCount,
   DEFAULT_CANDIDATE_MODELS,
 };
