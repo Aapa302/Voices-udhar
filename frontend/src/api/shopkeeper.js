@@ -45,3 +45,39 @@ export async function createShopkeeper(data) {
 
   return await handleApiResponse(response, 'દુકાનદાર બનાવવામાં ભૂલ આવી / Failed to create shopkeeper');
 }
+
+/**
+ * Get shopkeeper details.
+ * @param {string} id - Shopkeeper ID
+ * @returns {Promise<Object>} API response with shopkeeper data
+ */
+export async function getShopkeeperApi(id) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key');
+  const response = await fetch(`${API_BASE_URL}/api/shopkeepers/${id}`, {
+    headers: {
+      'x-api-key': apiKey || '',
+    },
+  });
+
+  return await handleApiResponse(response, 'દુકાનદારની માહિતી મેળવવામાં ભૂલ આવી / Failed to fetch shopkeeper details');
+}
+
+/**
+ * Update shopkeeper profile (e.g. upiId, shopName, phone).
+ * @param {string} id - Shopkeeper ID
+ * @param {Object} data - { shopName, phone, upiId }
+ * @returns {Promise<Object>} API response with updated shopkeeper data
+ */
+export async function updateShopkeeperApi(id, data) {
+  const apiKey = localStorage.getItem('voice_udhar_api_key');
+  const response = await fetch(`${API_BASE_URL}/api/shopkeepers/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey || '',
+    },
+    body: JSON.stringify(data),
+  });
+
+  return await handleApiResponse(response, 'દુકાનદાર અપડેટ કરવામાં ભૂલ આવી / Failed to update shopkeeper profile');
+}

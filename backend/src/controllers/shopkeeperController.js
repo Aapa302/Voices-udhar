@@ -9,7 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const createShopkeeper = async (req, res) => {
   try {
     const body = req.body || {};
-    const { shopName, phone, apiKey: providedApiKey, shopkeeperId: providedId } = body;
+    const { shopName, phone, upiId = '', apiKey: providedApiKey, shopkeeperId: providedId } = body;
 
     if (!shopName || !phone) {
       return res.status(400).json({
@@ -25,6 +25,7 @@ const createShopkeeper = async (req, res) => {
       shopkeeperId,
       shopName,
       phone,
+      upiId: typeof upiId === 'string' ? upiId.trim() : '',
       apiKey,
       createdAt: new Date().toISOString(),
     };
@@ -37,6 +38,7 @@ const createShopkeeper = async (req, res) => {
       apiKey,
       shopName,
       phone,
+      upiId: shopkeeperData.upiId,
       data: shopkeeperData,
     });
   } catch (error) {
@@ -87,7 +89,72 @@ const getShopkeeper = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/shopkeepers/:id
+ * Update shopkeeper details (shopName, phone, upiId)
+ */
+const updateShopkeeper = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authShopkeeperId = req.shopkeeper && req.shopkeeper.shopkeeperId;
+
+    if (!id) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Shopkeeper ID parameter is required',
+      });
+    }
+
+    if (id !== authShopkeeperId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Shopkeeper ID parameter does not match authenticated shopkeeper',
+      });
+    }
+
+    const docRef = db.collection('shopkeepers').doc(id);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Shopkeeper not found',
+      });
+    }
+
+    const existingData = doc.data();
+    const body = req.body || {};
+
+    const shopName = body.shopName !== undefined ? String(body.shopName).trim() : existingData.shopName;
+    const phone = body.phone !== undefined ? String(body.phone).trim() : existingData.phone;
+    const upiId = body.upiId !== undefined ? String(body.upiId).trim() : (existingData.upiId || '');
+
+    const updatedData = {
+      ...existingData,
+      shopName,
+      phone,
+      upiId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await docRef.update(updatedData);
+
+    return res.status(200).json({
+      message: 'Shopkeeper updated successfully',
+      data: updatedData,
+      ...updatedData,
+    });
+  } catch (error) {
+    console.error('Error updating shopkeeper:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: error ? error.message || String(error) : 'Unknown error during updating shopkeeper',
+    });
+  }
+};
+
 module.exports = {
   createShopkeeper,
   getShopkeeper,
+  updateShopkeeper,
 };
