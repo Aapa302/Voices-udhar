@@ -341,7 +341,7 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(2);
 
-      // Reset failure counts manually (mimicking 10-min cooldown timer)
+      // Reset failure counts manually (mimicking 12-hour cooldown timer)
       await resetModelFailureCounts();
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(0);
 
