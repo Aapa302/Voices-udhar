@@ -1507,12 +1507,12 @@ export default function HomeScreen() {
             <span>જવાબ / Answer</span>
           </div>
 
-          <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', padding: '1.25rem', border: '1px solid rgba(240, 198, 116, 0.25)', marginBottom: '1.25rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '1.35rem', fontWeight: '800', color: '#F8FAFC', marginBottom: '0.5rem', lineHeight: '1.4' }}>
+          <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', padding: '1.25rem', border: '1px solid rgba(240, 198, 116, 0.25)', marginBottom: '1.25rem', textAlign: 'center', maxHeight: '300px', overflowY: 'auto' }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#F8FAFC', marginBottom: '0.5rem', lineHeight: '1.4', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
               {queryResult.answerText}
             </div>
             {queryResult.answerTextEnglish && (
-              <div style={{ fontSize: '0.95rem', color: '#94A3B8', fontWeight: '500' }}>
+              <div style={{ fontSize: '0.95rem', color: '#94A3B8', fontWeight: '500', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
                 {queryResult.answerTextEnglish}
               </div>
             )}

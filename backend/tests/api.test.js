@@ -853,6 +853,133 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.body.answerTextEnglish).toContain('500');
       });
 
+      it('should handle customer_history query and return full transaction history summary', async () => {
+        // Create transactions for Ramesh
+        const custRes = await request(app)
+          .get(`/api/customers/${shopkeeperId}`)
+          .set('x-api-key', apiKey);
+        const ramesh = custRes.body.data.find(c => c.name === 'Ramesh Kumar');
+
+        await request(app)
+          .post('/api/transactions')
+          .set('x-api-key', apiKey)
+          .send({
+            customerId: ramesh.customerId,
+            type: 'udhaar_add',
+            amount: 600,
+            timestamp: new Date('2026-03-01T10:00:00Z').toISOString(),
+          });
+
+        await request(app)
+          .post('/api/transactions')
+          .set('x-api-key', apiKey)
+          .send({
+            customerId: ramesh.customerId,
+            type: 'udhaar_paid',
+            amount: 100,
+            timestamp: new Date('2026-03-02T10:00:00Z').toISOString(),
+          });
+
+        const dummyAudioBase64 = Buffer.from('Ramesh history query').toString('base64');
+
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudioBase64,
+            mockQueryType: 'customer_history',
+            mockCustomerName: 'Ramesh Kumar',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.isQuery).toBe(true);
+        expect(res.body.queryType).toBe('customer_history');
+        expect(res.body.answerText).toContain('600');
+        expect(res.body.answerText).toContain('100');
+        expect(res.body.answerText).toContain('છેલ્લો વ્યવહાર');
+      });
+
+      it('should handle inventory_status query for specific item and general list', async () => {
+        // Add inventory items
+        await request(app)
+          .post('/api/inventory')
+          .set('x-api-key', apiKey)
+          .send({ itemName: 'Parle-G', quantity: 15, unit: 'packet' });
+
+        await request(app)
+          .post('/api/inventory')
+          .set('x-api-key', apiKey)
+          .send({ itemName: 'Amul Milk', quantity: 8, unit: 'liter' });
+
+        // Query specific item
+        const dummyAudio1 = Buffer.from('Parle-G stock query').toString('base64');
+        const itemRes = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudio1,
+            mockQueryType: 'inventory_status',
+            mockItemName: 'Parle-G',
+          });
+
+        expect(itemRes.status).toBe(200);
+        expect(itemRes.body.isQuery).toBe(true);
+        expect(itemRes.body.queryType).toBe('inventory_status');
+        expect(itemRes.body.answerText).toContain('Parle-G 15 packet');
+
+        // Query general inventory
+        const dummyAudio2 = Buffer.from('all inventory query').toString('base64');
+        const generalRes = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudio2,
+            mockQueryType: 'inventory_status',
+          });
+
+        expect(generalRes.status).toBe(200);
+        expect(generalRes.body.isQuery).toBe(true);
+        expect(generalRes.body.queryType).toBe('inventory_status');
+        expect(generalRes.body.answerText).toContain('કુલ 2 વસ્તુઓ છે');
+      });
+
+      it('should handle inventory_low_stock query and list items below lowStockThreshold', async () => {
+        await request(app)
+          .post('/api/inventory')
+          .set('x-api-key', apiKey)
+          .send({ itemName: 'Tea Powder', quantity: 2, lowStockThreshold: 5, unit: 'kg' });
+
+        const dummyAudio = Buffer.from('low stock query').toString('base64');
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudio,
+            mockQueryType: 'inventory_low_stock',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.isQuery).toBe(true);
+        expect(res.body.queryType).toBe('inventory_low_stock');
+        expect(res.body.answerText).toContain('Tea Powder');
+      });
+
+      it('should handle general query fallback response', async () => {
+        const dummyAudio = Buffer.from('general query').toString('base64');
+        const res = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: dummyAudio,
+            mockQueryType: 'general',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.isQuery).toBe(true);
+        expect(res.body.queryType).toBe('general');
+        expect(res.body.answerText).toContain('શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?');
+      });
+
       it('should handle daily_summary query and return total summary response', async () => {
         const dummyAudioBase64 = Buffer.from('summary query').toString('base64');
 
