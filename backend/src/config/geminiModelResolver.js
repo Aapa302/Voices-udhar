@@ -7,6 +7,37 @@ const DEFAULT_CANDIDATE_MODELS = [
 
 let cachedCandidateModels = null;
 
+// Map of modelName -> number of consecutive failures during this server session
+const modelFailureCounts = new Map();
+
+function recordModelSuccess(modelName) {
+  if (!modelName) return;
+  modelFailureCounts.set(modelName, 0);
+}
+
+function recordModelFailure(modelName) {
+  if (!modelName) return;
+  const current = modelFailureCounts.get(modelName) || 0;
+  modelFailureCounts.set(modelName, current + 1);
+}
+
+function getOrderedCandidates(baseCandidates) {
+  if (!Array.isArray(baseCandidates) || baseCandidates.length === 0) return [];
+  const healthy = [];
+  const deprioritized = [];
+
+  for (const model of baseCandidates) {
+    const failures = modelFailureCounts.get(model) || 0;
+    if (failures >= 2) {
+      deprioritized.push(model);
+    } else {
+      healthy.push(model);
+    }
+  }
+
+  return [...healthy, ...deprioritized];
+}
+
 /**
  * Parses version numbers from a model name string.
  * E.g., 'gemini-2.5-flash' -> [2, 5], 'gemini-1.5-pro' -> [1, 5]
@@ -181,24 +212,49 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 async function generateWithFallback(genAI, generateContentFn, options = {}) {
   const candidatesStart = Date.now();
-  const candidates = await getCandidateModels();
+  const rawCandidates = await getCandidateModels();
+  const candidates = getOrderedCandidates(rawCandidates);
   const candidatesDuration = Date.now() - candidatesStart;
   const retryDelayMs = options.retryDelayMs !== undefined ? options.retryDelayMs : 500;
+  const attemptTimeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : 6000;
   let lastError = null;
 
-  console.log(`[Gemini Candidate Resolution] Duration: ${candidatesDuration}ms | Candidate models: [${candidates.join(', ')}]`);
+  const deprioritizedModels = rawCandidates.filter((m) => (modelFailureCounts.get(m) || 0) >= 2);
+  if (deprioritizedModels.length > 0) {
+    console.log(`[Gemini Model Resolver] Deprioritized models (2+ consecutive failures): [${deprioritizedModels.join(', ')}]`);
+  }
+
+  console.log(`[Gemini Candidate Resolution] Duration: ${candidatesDuration}ms | Ordered models: [${candidates.join(', ')}]`);
 
   for (let i = 0; i < candidates.length; i++) {
     const modelName = candidates[i];
     const attemptStart = Date.now();
     const attemptStartISO = new Date(attemptStart).toISOString();
-    console.log(`[Gemini Call Attempt ${i + 1}/${candidates.length}] Started at ${attemptStartISO} | Model: ${modelName}`);
+    console.log(`[Gemini Call Attempt ${i + 1}/${candidates.length}] Started at ${attemptStartISO} | Model: ${modelName} | Timeout: ${attemptTimeoutMs / 1000}s`);
 
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await generateContentFn(model);
+
+      let timer = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const timeoutErr = new Error(`Model ${modelName} timed out after ${attemptTimeoutMs / 1000}s`);
+          timeoutErr.isTimeout = true;
+          reject(timeoutErr);
+        }, attemptTimeoutMs);
+      });
+
+      const result = await Promise.race([
+        generateContentFn(model),
+        timeoutPromise,
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+
       const attemptDuration = Date.now() - attemptStart;
       const attemptEndISO = new Date().toISOString();
+
+      recordModelSuccess(modelName);
 
       if (i === 0) {
         console.log(`[Gemini Call Attempt 1 Success] Finished at ${attemptEndISO} | Model: ${modelName} | Duration: ${attemptDuration}ms | First model succeeded, no fallback models attempted.`);
@@ -211,7 +267,13 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
       const attemptDuration = Date.now() - attemptStart;
       const attemptEndISO = new Date().toISOString();
       lastError = error;
-      console.warn(`[Gemini Call Attempt ${i + 1} Failed] Finished at ${attemptEndISO} | Model: ${modelName} | Duration: ${attemptDuration}ms | Error: ${error.message || error}`);
+      recordModelFailure(modelName);
+
+      if (error.isTimeout) {
+        console.warn(`[Gemini] Model ${modelName} timed out after ${attemptTimeoutMs / 1000}s, trying next candidate`);
+      } else {
+        console.warn(`[Gemini Call Attempt ${i + 1} Failed] Finished at ${attemptEndISO} | Model: ${modelName} | Duration: ${attemptDuration}ms | Error: ${error.message || error}`);
+      }
 
       if (isNonTransientError(error)) {
         console.warn(`[Gemini] Non-transient error encountered on ${modelName}. Aborting model retries.`);
@@ -236,6 +298,7 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
  */
 function resetCache() {
   cachedCandidateModels = null;
+  modelFailureCounts.clear();
 }
 
 module.exports = {
