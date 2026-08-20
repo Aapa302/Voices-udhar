@@ -1,14 +1,31 @@
 import React, { useState } from 'react';
-import { Store, Sparkles, Settings, QrCode, X, Save, Loader2, Check } from 'lucide-react';
+import { Store, Sparkles, Settings, QrCode, X, Save, Loader2, Check, Download, FileSpreadsheet, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getShopkeeperApi, updateShopkeeperApi } from '../api/shopkeeper';
+import { downloadDataExportApi } from '../api/export';
 
 export default function Header({ shopName }) {
   const [showSettingsModal, setShowShowSettingsModal] = useState(false);
   const [editUpiId, setEditUpiId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(null); // 'excel' | 'pdf' | null
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const handleExportData = async (format) => {
+    const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
+    if (!shopkeeperId) return;
+    setErrorMsg('');
+    try {
+      setExportLoading(format);
+      await downloadDataExportApi(shopkeeperId, format);
+    } catch (err) {
+      console.error('Export failed:', err);
+      setErrorMsg(err.message || 'ડેટા ડાઉનલોડ કરવામાં નિષ્ફળ / Failed to download data');
+    } finally {
+      setExportLoading(null);
+    }
+  };
 
   const handleOpenSettings = async () => {
     setErrorMsg('');
@@ -178,6 +195,69 @@ export default function Header({ shopName }) {
                   </button>
                 </div>
               </form>
+
+              {/* DATA EXPORT SECTION IN SETTINGS */}
+              <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px dashed rgba(255, 255, 255, 0.15)' }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#F8FAFC', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Download size={18} color="#F0C674" />
+                  <span>ડેટા ડાઉનલોડ કરો / Export Data</span>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginBottom: '0.85rem' }}>
+                  તમારો ગ્રાહક અને ટ્રાન્ઝેક્શન ડેટા Excel અથવા PDF ફાઇલમાં ડાઉનલોડ કરો.
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.6rem' }}>
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    type="button"
+                    onClick={() => handleExportData('excel')}
+                    disabled={exportLoading !== null}
+                    style={{
+                      flex: 1,
+                      padding: '0.65rem 0.5rem',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(34, 197, 94, 0.4)',
+                      backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                      color: '#4ADE80',
+                      fontWeight: '700',
+                      fontSize: '0.825rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                    }}
+                  >
+                    {exportLoading === 'excel' ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
+                    <span>Excel ડાઉનલોડ કરો</span>
+                  </motion.button>
+
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    type="button"
+                    onClick={() => handleExportData('pdf')}
+                    disabled={exportLoading !== null}
+                    style={{
+                      flex: 1,
+                      padding: '0.65rem 0.5rem',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(244, 63, 94, 0.4)',
+                      backgroundColor: 'rgba(244, 63, 94, 0.15)',
+                      color: '#FDA4AF',
+                      fontWeight: '700',
+                      fontSize: '0.825rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                    }}
+                  >
+                    {exportLoading === 'pdf' ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
+                    <span>PDF ડાઉનલોડ કરો</span>
+                  </motion.button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
