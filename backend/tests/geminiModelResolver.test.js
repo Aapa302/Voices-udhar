@@ -10,15 +10,20 @@ const {
   resetCache,
   resetModelFailureCounts,
   getModelFailureCount,
+  loadModelHealthFromFirestore,
   DEFAULT_CANDIDATE_MODELS,
 } = require('../src/config/geminiModelResolver');
+const { db } = require('../src/config/firebase');
 
 describe('geminiModelResolver with candidate list & automatic fallback', () => {
   const originalEnv = process.env;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    if (typeof db._reset === 'function') {
+      db._reset();
+    }
     resetCache();
     delete global.fetch;
   });
@@ -337,7 +342,7 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(2);
 
       // Reset failure counts manually (mimicking 10-min cooldown timer)
-      resetModelFailureCounts();
+      await resetModelFailureCounts();
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(0);
 
       // Next request should attempt Model 0 again
@@ -349,6 +354,115 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
 
       warnSpy.mockRestore();
       logSpy.mockRestore();
+    });
+  });
+
+  describe('Firestore Persistence for Model Health', () => {
+    let mockGenAI;
+
+    beforeEach(() => {
+      mockGenAI = {
+        getGenerativeModel: jest.fn((opts) => ({ modelName: opts.model })),
+      };
+    });
+
+    test('loads model health from Firestore on startup/initial call and logs summary', async () => {
+      // Seed Firestore with failure health records
+      await db.collection('geminiModelHealth').doc('gemini-3.7-flash').set({
+        modelName: 'gemini-3.7-flash',
+        consecutiveFailures: 3,
+        lastFailureAt: new Date().toISOString(),
+      });
+      await db.collection('geminiModelHealth').doc('gemini-3.6-flash').set({
+        modelName: 'gemini-3.6-flash',
+        consecutiveFailures: 1,
+        lastFailureAt: new Date().toISOString(),
+      });
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await loadModelHealthFromFirestore();
+
+      expect(getModelFailureCount('gemini-3.7-flash')).toBe(3);
+      expect(getModelFailureCount('gemini-3.6-flash')).toBe(1);
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[Gemini] Loaded model health from Firestore: gemini-3.7-flash (3 failures), gemini-3.6-flash (1 failure)')
+      );
+
+      logSpy.mockRestore();
+    });
+
+    test('persists failure to Firestore only when crossing 2-failure threshold', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const error503 = { status: 503, message: 'Transient 503' };
+      const generateFnFailFirst = jest.fn((model) => {
+        if (model.modelName === DEFAULT_CANDIDATE_MODELS[0]) {
+          return Promise.reject(error503);
+        }
+        return Promise.resolve({ response: { text: () => 'Model 2 OK' } });
+      });
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Failure 1 (1 failure, below threshold) -> no Firestore write expected
+      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
+      let docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
+      expect(docSnap.exists).toBe(false);
+
+      // Failure 2 (2 failures, reaches threshold) -> writes to Firestore
+      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
+      docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
+      expect(docSnap.exists).toBe(true);
+      expect(docSnap.data().consecutiveFailures).toBe(2);
+
+      // Failure 3 (already >= 2) -> does NOT write again (avoiding excessive writes)
+      const setSpy = jest.spyOn(db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]), 'set');
+      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
+      expect(setSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    test('persists success to Firestore after failures (state change)', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Seed model with failure count = 1 in Firestore and memory
+      await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).set({
+        modelName: DEFAULT_CANDIDATE_MODELS[0],
+        consecutiveFailures: 1,
+      });
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await loadModelHealthFromFirestore();
+
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
+
+      const generateFnFirstOk = jest.fn().mockResolvedValue({ response: { text: () => 'Model 0 Succeeded' } });
+      await generateWithFallback(mockGenAI, generateFnFirstOk, { retryDelayMs: 0 });
+
+      const docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
+      expect(docSnap.data().consecutiveFailures).toBe(0);
+      expect(docSnap.data().lastSuccessAt).toBeDefined();
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    test('cooldown reset updates Firestore documents with consecutiveFailures > 0', async () => {
+      await db.collection('geminiModelHealth').doc('gemini-2.5-flash').set({
+        modelName: 'gemini-2.5-flash',
+        consecutiveFailures: 3,
+      });
+
+      await resetModelFailureCounts();
+
+      const docSnap = await db.collection('geminiModelHealth').doc('gemini-2.5-flash').get();
+      expect(docSnap.data().consecutiveFailures).toBe(0);
     });
   });
 });
