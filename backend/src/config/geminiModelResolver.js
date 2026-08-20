@@ -13,8 +13,8 @@ let isHealthLoaded = false;
 // Map of modelName -> number of consecutive failures during this server session
 const modelFailureCounts = new Map();
 
-// 10-minute cooldown interval to reset all model failure counts
-const COOLDOWN_RESET_INTERVAL_MS = 10 * 60 * 1000;
+// 30-minute cooldown interval to reset all model failure counts
+const COOLDOWN_RESET_INTERVAL_MS = 30 * 60 * 1000;
 
 async function loadModelHealthFromFirestore() {
   if (isHealthLoaded) return;
