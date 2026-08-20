@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight } from 'lucide-react';
+import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight, WifiOff, CloudOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { processVoiceAudio, processVoiceQuery } from '../api/voice';
 import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, markReminderSent, getRemindersToday } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
 import { getInventoryApi, addOrUpdateInventoryApi } from '../api/inventory';
+import { savePendingRecording, getPendingRecordingsCount } from '../utils/offlineQueue';
 import BillModal from '../components/BillModal';
 import { Package } from 'lucide-react';
 
@@ -22,6 +23,7 @@ const SCREEN_STATE = {
   SUCCESS: 'SUCCESS',
   PERMISSION_DENIED: 'PERMISSION_DENIED',
   QUERY_RESPONSE: 'QUERY_RESPONSE',
+  OFFLINE_RECORDED: 'OFFLINE_RECORDED',
 };
 
 // Map raw intent to system transaction type
@@ -52,6 +54,16 @@ export default function HomeScreen() {
   const [parsedData, setParsedData] = useState(null);
   const [generatedBill, setGeneratedBill] = useState(null);
   const [showBillModal, setShowBillModal] = useState(false);
+
+  // Network online/offline state & offline queue state
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
+
+  const updateOfflineCount = async () => {
+    const shopId = localStorage.getItem('voice_udhar_shop_id');
+    const count = await getPendingRecordingsCount(shopId);
+    setPendingOfflineCount(count);
+  };
 
   // Pending udhaar alerts state & low stock alerts state for Home screen banner
   const [pendingAlertCount, setPendingAlertCount] = useState(0);
@@ -98,14 +110,24 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchPendingAlertsAndReminders();
+    updateOfflineCount();
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
 
     const handleShopChanged = () => {
       resetToIdle();
       fetchPendingAlertsAndReminders();
+      updateOfflineCount();
     };
 
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+
     return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
     };
   }, []);
@@ -296,6 +318,25 @@ export default function HomeScreen() {
           const base64AudioWithHeader = reader.result;
           // Extract plain base64 string
           const base64Audio = base64AudioWithHeader.split(',')[1] || base64AudioWithHeader;
+
+          // Check if offline
+          if (!navigator.onLine) {
+            const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
+            const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id') || '';
+
+            await savePendingRecording({
+              audioBase64,
+              mimeType,
+              timestamp: new Date().toISOString(),
+              shopId,
+              shopkeeperId,
+              isQueryMode,
+            });
+
+            await updateOfflineCount();
+            setScreenState(SCREEN_STATE.OFFLINE_RECORDED);
+            return;
+          }
 
           if (isQueryMode) {
             const queryRes = await processVoiceQuery(base64Audio, mimeType);
@@ -640,6 +681,66 @@ export default function HomeScreen() {
 
   return (
     <div className="main-content">
+      {/* PERSISTENT OFFLINE NETWORK STATUS BANNER */}
+      {!isOnline && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            backgroundColor: 'rgba(244, 63, 94, 0.18)',
+            border: '1px solid rgba(244, 63, 94, 0.45)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.75rem 1rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            color: '#FDA4AF',
+            fontSize: '0.9rem',
+            fontWeight: '700',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <WifiOff size={20} color="#F43F5E" style={{ flexShrink: 0 }} />
+          <div>
+            <div>ઑફલાઇન / Offline - રેકોર્ડિંગ પછી સેવ થશે</div>
+            <div style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: '500' }}>
+              Recording will save locally and process when internet returns
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* PENDING OFFLINE RECORDINGS QUEUED INDICATOR */}
+      {pendingOfflineCount > 0 && screenState === SCREEN_STATE.IDLE && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            backgroundColor: 'rgba(240, 198, 116, 0.15)',
+            border: '1px solid rgba(240, 198, 116, 0.4)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.75rem 0.9rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            color: '#F0C674',
+            fontSize: '0.9rem',
+            fontWeight: '700',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <CloudOff size={20} color="#F0C674" style={{ flexShrink: 0 }} />
+          <div>
+            <div>⏳ {pendingOfflineCount} રેકોર્ડિંગ પ્રોસેસ થવાના બાકી છે</div>
+            <div style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: '500' }}>
+              {pendingOfflineCount} {pendingOfflineCount === 1 ? 'recording' : 'recordings'} pending processing
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* TODAY REMINDERS QUEUE BANNER / CARD */}
       {!isTodayRemindersDismissed && todayRemindersCount > 0 && screenState === SCREEN_STATE.IDLE && (
         <motion.div
@@ -893,6 +994,31 @@ export default function HomeScreen() {
       {/* BILL PREVIEW MODAL */}
       {showBillModal && generatedBill && (
         <BillModal billData={generatedBill} onClose={handleCloseBillModal} />
+      )}
+
+      {/* OFFLINE RECORDED CONFIRMATION STATE */}
+      {screenState === SCREEN_STATE.OFFLINE_RECORDED && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+          className="confirmation-card"
+          style={{ textAlign: 'center', borderColor: 'rgba(240, 198, 116, 0.4)' }}
+        >
+          <div style={{ color: '#F0C674', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
+            <CloudOff size={52} />
+          </div>
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: '#F8FAFC', textAlign: 'center', lineHeight: '1.3' }}>
+            રેકોર્ડ થયું, ઇન્ટરનેટ આવે ત્યારે પ્રોસેસ થશે
+          </h2>
+          <p style={{ color: '#94A3B8', fontSize: '0.95rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+            Recorded, will process when internet returns.
+          </p>
+          <button className="btn-primary" onClick={resetToIdle}>
+            <CheckCircle2 size={20} />
+            ઠીક છે / Done
+          </button>
+        </motion.div>
       )}
 
       {/* 1. PERMISSION DENIED STATE */}
