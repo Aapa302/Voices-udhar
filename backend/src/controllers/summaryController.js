@@ -1,4 +1,5 @@
 const { db } = require('../config/firebase');
+const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
 
 /**
  * GET /api/summary/daily/:shopkeeperId
@@ -33,6 +34,7 @@ const getDailySummary = async (req, res) => {
     const startISO = startOfTodayIST.toISOString();
     const endISO = endOfTodayIST.toISOString();
 
+    const effectiveShopId = getEffectiveShopId(req);
     const snapshot = await db
       .collection('transactions')
       .where('shopkeeperId', '==', authShopkeeperId)
@@ -47,15 +49,17 @@ const getDailySummary = async (req, res) => {
 
     snapshot.forEach((doc) => {
       const data = doc.data();
-      transactionCount++;
-      const amount = Number(data.amount) || 0;
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        transactionCount++;
+        const amount = Number(data.amount) || 0;
 
-      if (data.type === 'sale') {
-        totalSales += amount;
-      } else if (data.type === 'udhaar_add') {
-        totalNewUdhaar += amount;
-      } else if (data.type === 'udhaar_paid') {
-        totalUdhaarCollected += amount;
+        if (data.type === 'sale') {
+          totalSales += amount;
+        } else if (data.type === 'udhaar_add') {
+          totalNewUdhaar += amount;
+        } else if (data.type === 'udhaar_paid') {
+          totalUdhaarCollected += amount;
+        }
       }
     });
 
@@ -111,6 +115,7 @@ const getSummaryTrends = async (req, res) => {
     const startISO = startDateIST.toISOString();
     const endISO = endDateIST.toISOString();
 
+    const effectiveShopId = getEffectiveShopId(req);
     const snapshot = await db
       .collection('transactions')
       .where('shopkeeperId', '==', authShopkeeperId)
@@ -136,6 +141,7 @@ const getSummaryTrends = async (req, res) => {
     snapshot.forEach((doc) => {
       const data = doc.data();
       if (!data.timestamp) return;
+      if (!isDocInShop(data, effectiveShopId, authShopkeeperId)) return;
 
       const txDate = new Date(data.timestamp);
       const txDateStr = txDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });

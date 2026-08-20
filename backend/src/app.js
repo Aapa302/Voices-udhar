@@ -12,6 +12,7 @@ const summaryRoutes = require('./routes/summary');
 const inventoryRoutes = require('./routes/inventory');
 const reminderRoutes = require('./routes/reminders');
 const exportRoutes = require('./routes/export');
+const shopRoutes = require('./routes/shops');
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/summary', summaryRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/shops', shopRoutes);
 
 // 404 handler
 app.use((req, res) => {

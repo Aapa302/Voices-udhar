@@ -36,11 +36,13 @@ async function handleApiResponse(response, defaultErrorMsg) {
  */
 export async function getCustomers(shopkeeperId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/customers/${shopkeeperId}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -55,11 +57,13 @@ export async function getCustomers(shopkeeperId) {
  */
 export async function getCustomerDetail(customerId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/customers/detail/${customerId}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -74,14 +78,16 @@ export async function getCustomerDetail(customerId) {
  */
 export async function createCustomer(customerData) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/customers`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
-    body: JSON.stringify(customerData),
+    body: JSON.stringify({ ...customerData, shopId }),
   });
 
   const data = await handleApiResponse(response, 'ગ્રાહક ઉમેરવામાં ભૂલ આવી / Failed to save customer');
@@ -96,11 +102,13 @@ export async function createCustomer(customerData) {
  */
 export async function getCustomerAlerts(shopkeeperId, days = 15) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/customers/alerts/${shopkeeperId}?days=${days}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -116,11 +124,13 @@ export async function getCustomerAlerts(shopkeeperId, days = 15) {
  */
 export async function getCustomerReminders(shopkeeperId, days = 30) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/customers/reminders/${shopkeeperId}?days=${days}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -135,11 +145,13 @@ export async function getCustomerReminders(shopkeeperId, days = 30) {
  */
 export async function markReminderSent(customerId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/customers/${customerId}/reminder-sent`, {
     method: 'POST',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -153,11 +165,13 @@ export async function markReminderSent(customerId) {
  */
 export async function getRemindersToday(shopkeeperId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/reminders/today/${shopkeeperId}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -172,12 +186,14 @@ export async function getRemindersToday(shopkeeperId) {
  */
 export async function markBatchRemindersSent(customerIds) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/reminders/batch-sent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
     body: JSON.stringify({ customerIds }),
   });

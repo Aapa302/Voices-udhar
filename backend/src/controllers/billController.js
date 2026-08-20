@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 const { db } = require('../config/firebase');
+const { getEffectiveShopId } = require('../utils/shopHelper');
 
 /**
  * Helper to generate PDF document buffer
@@ -86,13 +87,23 @@ const generateBill = async (req, res) => {
     let customerPhone = inputCustomerPhone || '';
     let upiId = '';
 
-    // Fetch shopkeeper details from Firestore if shopkeeperId provided
+    const effectiveShopId = getEffectiveShopId(req);
+
+    // Fetch shop details from Firestore if shopkeeperId provided
     if (shopkeeperId) {
-      const shopDoc = await db.collection('shopkeepers').doc(shopkeeperId).get();
+      const shopRef = db.collection('shops').doc(effectiveShopId || `shop_${shopkeeperId}`);
+      const shopDoc = await shopRef.get();
       if (shopDoc.exists) {
         const shopData = shopDoc.data();
         shopName = shopData.shopName || shopName;
         upiId = shopData.upiId || upiId;
+      } else {
+        const skDoc = await db.collection('shopkeepers').doc(shopkeeperId).get();
+        if (skDoc.exists) {
+          const skData = skDoc.data();
+          shopName = skData.shopName || shopName;
+          upiId = skData.upiId || upiId;
+        }
       }
     }
 

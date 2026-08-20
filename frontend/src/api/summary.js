@@ -37,11 +37,13 @@ async function handleApiResponse(response, defaultErrorMsg) {
  */
 export async function getDailySummaryApi(shopkeeperId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/summary/daily/${shopkeeperId}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -57,11 +59,13 @@ export async function getDailySummaryApi(shopkeeperId) {
  */
 export async function getSummaryTrendsApi(shopkeeperId, period = 'week') {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/summary/trends/${shopkeeperId}?period=${period}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 

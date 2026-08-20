@@ -43,6 +43,15 @@ export default function CustomersScreen() {
 
   useEffect(() => {
     fetchCustomersList();
+
+    const handleShopChanged = () => {
+      fetchCustomersList();
+    };
+
+    window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+    return () => {
+      window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
+    };
   }, []);
 
   // Filter customers based on search query

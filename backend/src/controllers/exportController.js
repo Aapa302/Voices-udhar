@@ -1,6 +1,7 @@
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const { db } = require('../config/firebase');
+const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
 
 /**
  * Generate Excel workbook buffer using exceljs
@@ -202,11 +203,18 @@ const exportData = async (req, res) => {
       });
     }
 
-    // Fetch shopkeeper details
+    const effectiveShopId = getEffectiveShopId(req);
+
+    // Fetch shop details
     let shopName = 'Voice Udhar Shop';
-    const shopDoc = await db.collection('shopkeepers').doc(authShopkeeperId).get();
+    const shopDoc = await db.collection('shops').doc(effectiveShopId || `shop_${authShopkeeperId}`).get();
     if (shopDoc.exists) {
       shopName = shopDoc.data().shopName || shopName;
+    } else {
+      const skDoc = await db.collection('shopkeepers').doc(authShopkeeperId).get();
+      if (skDoc.exists) {
+        shopName = skDoc.data().shopName || shopName;
+      }
     }
 
     // Fetch customers
@@ -216,7 +224,12 @@ const exportData = async (req, res) => {
       .get();
 
     const customers = [];
-    custSnapshot.forEach((doc) => customers.push({ id: doc.id, ...doc.data() }));
+    custSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        customers.push({ id: doc.id, ...data });
+      }
+    });
 
     // Fetch transactions
     const txSnapshot = await db
@@ -225,7 +238,12 @@ const exportData = async (req, res) => {
       .get();
 
     const transactions = [];
-    txSnapshot.forEach((doc) => transactions.push({ id: doc.id, ...doc.data() }));
+    txSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        transactions.push({ id: doc.id, ...data });
+      }
+    });
 
     if (format === 'excel') {
       const excelBuffer = await generateExcelBuffer(shopName, customers, transactions);

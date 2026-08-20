@@ -57,6 +57,15 @@ export default function InventoryScreen() {
 
   useEffect(() => {
     fetchInventory();
+
+    const handleShopChanged = () => {
+      fetchInventory();
+    };
+
+    window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+    return () => {
+      window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
+    };
   }, []);
 
   const lowStockItems = items.filter((item) => item.isLowStock || Number(item.quantity) <= Number(item.lowStockThreshold || 5));

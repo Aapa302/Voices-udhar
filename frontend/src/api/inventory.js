@@ -36,11 +36,13 @@ async function handleApiResponse(response, defaultErrorMsg) {
  */
 export async function getInventoryApi(shopkeeperId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/inventory/${shopkeeperId}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 
@@ -56,15 +58,18 @@ export async function getInventoryApi(shopkeeperId) {
 export async function addOrUpdateInventoryApi(itemData) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
   const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/inventory`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
     body: JSON.stringify({
       shopkeeperId,
+      shopId,
       ...itemData,
     }),
   });
@@ -80,12 +85,14 @@ export async function addOrUpdateInventoryApi(itemData) {
  */
 export async function updateInventoryItemApi(itemId, itemData) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/inventory/${itemId}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
     body: JSON.stringify(itemData),
   });
@@ -100,11 +107,13 @@ export async function updateInventoryItemApi(itemId, itemData) {
  */
 export async function deleteInventoryItemApi(itemId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/inventory/${itemId}`, {
     method: 'DELETE',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 

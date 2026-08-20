@@ -1,5 +1,6 @@
 const { db } = require('../config/firebase');
 const { v4: uuidv4 } = require('uuid');
+const { ensureDefaultShop } = require('./shopController');
 
 /**
  * POST /api/shopkeepers
@@ -31,6 +32,9 @@ const createShopkeeper = async (req, res) => {
     };
 
     await db.collection('shopkeepers').doc(shopkeeperId).set(shopkeeperData);
+
+    // Auto-create default shop record in shops collection
+    await ensureDefaultShop(shopkeeperId, shopName, shopkeeperData.upiId);
 
     return res.status(201).json({
       message: 'Shopkeeper created successfully',
@@ -138,6 +142,21 @@ const updateShopkeeper = async (req, res) => {
     };
 
     await docRef.update(updatedData);
+
+    // Also update default shop in shops collection if present
+    try {
+      const defaultShopRef = db.collection('shops').doc(`shop_${id}`);
+      const defaultShopDoc = await defaultShopRef.get();
+      if (defaultShopDoc.exists) {
+        await defaultShopRef.update({
+          shopName,
+          upiId,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (sErr) {
+      console.warn('Failed to sync updated shopkeeper details to default shop:', sErr.message);
+    }
 
     return res.status(200).json({
       message: 'Shopkeeper updated successfully',

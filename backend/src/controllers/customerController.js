@@ -1,5 +1,6 @@
 const { db } = require('../config/firebase');
 const { v4: uuidv4 } = require('uuid');
+const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
 
 /**
  * POST /api/customers
@@ -32,6 +33,7 @@ const addOrUpdateCustomer = async (req, res) => {
       });
     }
 
+    const effectiveShopId = getEffectiveShopId(req);
     const customerId = providedCustomerId || `cust_${uuidv4()}`;
     const initialUdhaar = typeof totalUdhaar === 'number' ? totalUdhaar : 0;
 
@@ -55,6 +57,7 @@ const addOrUpdateCustomer = async (req, res) => {
       customerData = {
         ...existingData,
         shopkeeperId: authShopkeeperId,
+        shopId: effectiveShopId || existingData.shopId || `shop_${authShopkeeperId}`,
         name,
         phone,
         totalUdhaar: typeof totalUdhaar === 'number' ? totalUdhaar : existingData.totalUdhaar || 0,
@@ -68,6 +71,7 @@ const addOrUpdateCustomer = async (req, res) => {
       customerData = {
         customerId,
         shopkeeperId: authShopkeeperId,
+        shopId: effectiveShopId || `shop_${authShopkeeperId}`,
         name,
         phone,
         totalUdhaar: initialUdhaar,
@@ -120,11 +124,15 @@ const getCustomersByShopkeeper = async (req, res) => {
       });
     }
 
+    const effectiveShopId = getEffectiveShopId(req);
     const snapshot = await db.collection('customers').where('shopkeeperId', '==', authShopkeeperId).get();
 
     const customers = [];
     snapshot.forEach((doc) => {
-      customers.push(doc.data());
+      const data = doc.data();
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        customers.push(data);
+      }
     });
 
     return res.status(200).json({
@@ -220,6 +228,7 @@ const getCustomerAlerts = async (req, res) => {
 
     const daysThreshold = parseInt(req.query.days, 10) || 15;
     const highLimit = parseInt(req.query.limit, 10) || 10;
+    const effectiveShopId = getEffectiveShopId(req);
 
     // Fetch all customers for this shopkeeper
     const customersSnapshot = await db
@@ -230,12 +239,14 @@ const getCustomerAlerts = async (req, res) => {
     const pendingCustomers = [];
     customersSnapshot.forEach((doc) => {
       const data = doc.data();
-      const totalUdhaar = Number(data.totalUdhaar) || 0;
-      if (totalUdhaar > 0) {
-        pendingCustomers.push({
-          ...data,
-          totalUdhaar,
-        });
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        const totalUdhaar = Number(data.totalUdhaar) || 0;
+        if (totalUdhaar > 0) {
+          pendingCustomers.push({
+            ...data,
+            totalUdhaar,
+          });
+        }
       }
     });
 
@@ -336,6 +347,7 @@ const getCustomerReminders = async (req, res) => {
     }
 
     const daysThreshold = parseInt(req.query.days, 10) || 30;
+    const effectiveShopId = getEffectiveShopId(req);
 
     const customersSnapshot = await db
       .collection('customers')
@@ -345,9 +357,11 @@ const getCustomerReminders = async (req, res) => {
     const pendingCustomers = [];
     customersSnapshot.forEach((doc) => {
       const data = doc.data();
-      const totalUdhaar = Number(data.totalUdhaar) || 0;
-      if (totalUdhaar > 0) {
-        pendingCustomers.push({ ...data, totalUdhaar });
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        const totalUdhaar = Number(data.totalUdhaar) || 0;
+        if (totalUdhaar > 0) {
+          pendingCustomers.push({ ...data, totalUdhaar });
+        }
       }
     });
 
@@ -551,6 +565,7 @@ const getRemindersToday = async (req, res) => {
       });
     }
 
+    const effectiveShopId = getEffectiveShopId(req);
     const customersSnapshot = await db
       .collection('customers')
       .where('shopkeeperId', '==', authShopkeeperId)
@@ -559,9 +574,11 @@ const getRemindersToday = async (req, res) => {
     const pendingCustomers = [];
     customersSnapshot.forEach((doc) => {
       const data = doc.data();
-      const totalUdhaar = Number(data.totalUdhaar) || 0;
-      if (totalUdhaar > 0) {
-        pendingCustomers.push({ ...data, totalUdhaar });
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        const totalUdhaar = Number(data.totalUdhaar) || 0;
+        if (totalUdhaar > 0) {
+          pendingCustomers.push({ ...data, totalUdhaar });
+        }
       }
     });
 

@@ -119,6 +119,15 @@ export default function SummaryScreen() {
     }
     setIsSpeaking(false);
     fetchData();
+
+    const handleShopChanged = () => {
+      fetchData();
+    };
+
+    window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+    return () => {
+      window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
+    };
   }, [activeTab]);
 
   const handleReadAloud = async () => {

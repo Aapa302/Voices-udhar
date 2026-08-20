@@ -37,16 +37,19 @@ async function handleApiResponse(response, defaultErrorMsg) {
  */
 export async function processVoiceAudio(audioBase64, mimeType = 'audio/webm') {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/voice/process`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
     body: JSON.stringify({
       audioBase64,
       mimeType,
+      shopId,
     }),
   });
 
@@ -61,16 +64,19 @@ export async function processVoiceAudio(audioBase64, mimeType = 'audio/webm') {
  */
 export async function processVoiceQuery(audioBase64, mimeType = 'audio/webm') {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/voice/query`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
     body: JSON.stringify({
       audioBase64,
       mimeType,
+      shopId,
     }),
   });
 

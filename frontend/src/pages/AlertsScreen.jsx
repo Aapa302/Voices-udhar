@@ -40,6 +40,15 @@ export default function AlertsScreen() {
 
   useEffect(() => {
     fetchAlertsList();
+
+    const handleShopChanged = () => {
+      fetchAlertsList();
+    };
+
+    window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+    return () => {
+      window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
+    };
   }, []);
 
   const openWhatsApp = (e, customer) => {

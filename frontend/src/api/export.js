@@ -7,10 +7,13 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '';
  */
 export async function downloadDataExportApi(shopkeeperId, format = 'excel') {
   const apiKey = localStorage.getItem('voice_udhar_api_key');
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
+
   const response = await fetch(`${API_BASE_URL}/api/export/${shopkeeperId}?format=${format}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey || '',
+      'x-shop-id': shopId,
     },
   });
 

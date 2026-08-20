@@ -1,6 +1,7 @@
 const { db } = require('../config/firebase');
 const { v4: uuidv4 } = require('uuid');
 const { findMatchingInventoryItem } = require('./inventoryController');
+const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
 
 /**
  * Helper to automatically decrement inventory items when a sale transaction is saved.
@@ -142,12 +143,14 @@ const logTransaction = async (req, res) => {
       });
     }
 
+    const effectiveShopId = getEffectiveShopId(req);
     const transactionId = providedId || `tx_${uuidv4()}`;
     const txTimestamp = timestamp || new Date().toISOString();
 
     const transactionData = {
       transactionId,
       shopkeeperId: authShopkeeperId,
+      shopId: effectiveShopId || `shop_${authShopkeeperId}`,
       customerId,
       type,
       amount: numericAmount,
@@ -238,6 +241,7 @@ const getTransactionsByCustomer = async (req, res) => {
       });
     }
 
+    const effectiveShopId = getEffectiveShopId(req);
     const snapshot = await db
       .collection('transactions')
       .where('shopkeeperId', '==', authShopkeeperId)
@@ -246,7 +250,10 @@ const getTransactionsByCustomer = async (req, res) => {
 
     const transactions = [];
     snapshot.forEach((doc) => {
-      transactions.push(doc.data());
+      const data = doc.data();
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        transactions.push(data);
+      }
     });
 
     return res.status(200).json({
