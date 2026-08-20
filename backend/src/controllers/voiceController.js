@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { generateWithFallback } = require('../config/geminiModelResolver');
 const { db } = require('../config/firebase');
+const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
 
 /**
  * Calculates Levenshtein distance between two strings.
@@ -118,12 +119,15 @@ const CUSTOMER_CACHE_TTL_MS = 60000;
 /**
  * Helper to fetch customer names with 60s in-memory caching and 50 record limit.
  */
-async function getCachedCustomerNames(shopkeeperId, logDetails = true) {
+async function getCachedCustomerNames(shopkeeperId, shopId, logDetails = true) {
   if (!shopkeeperId || process.env.USE_MOCK_DB === 'true') {
     return [];
   }
 
-  const cached = customerCache.get(shopkeeperId);
+  const effectiveShopId = shopId || `shop_${shopkeeperId}`;
+  const cacheKey = `${shopkeeperId}_${effectiveShopId}`;
+
+  const cached = customerCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CUSTOMER_CACHE_TTL_MS) {
     if (logDetails) {
       console.log(`[Voice Timing] Firestore customer list fetched from memory CACHE (TTL hit, ${cached.names.length} names)`);
@@ -135,11 +139,17 @@ async function getCachedCustomerNames(shopkeeperId, logDetails = true) {
     const snapshot = await db
       .collection('customers')
       .where('shopkeeperId', '==', shopkeeperId)
-      .limit(50)
+      .limit(100)
       .get();
 
-    const names = snapshot.docs.map((doc) => doc.data().name).filter(Boolean);
-    customerCache.set(shopkeeperId, { names, timestamp: Date.now() });
+    const names = snapshot.docs
+      .map((doc) => doc.data())
+      .filter((data) => isDocInShop(data, effectiveShopId, shopkeeperId))
+      .map((data) => data.name)
+      .filter(Boolean)
+      .slice(0, 50);
+
+    customerCache.set(cacheKey, { names, timestamp: Date.now() });
     if (logDetails) {
       console.log(`[Voice Timing] Firestore customer list queried from Firestore DB (cache miss, ${names.length} names)`);
     }
@@ -180,7 +190,8 @@ const processVoice = async (req, res) => {
     const shopkeeperId = req.shopkeeper ? req.shopkeeper.shopkeeperId : null;
     console.log(`[Voice Timing] [${firestoreStartISO}] [1/3] Fetching Firestore customer list for shopkeeperId: ${shopkeeperId || 'none'}...`);
 
-    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId, true);
+    const effectiveShopId = getEffectiveShopId(req);
+    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId, effectiveShopId, true);
     const firestoreFetchMs = Date.now() - firestoreStart;
     const firestoreEndISO = new Date().toISOString();
     console.log(`[Voice Timing] [${firestoreEndISO}] [1/3] Firestore customer fetch finished | Duration: ${firestoreFetchMs}ms | Customer count: ${existingCustomerNames.length}`);
@@ -420,10 +431,11 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
 /**
  * Helper to query customer balance for query endpoint.
  */
-async function handleCustomerBalanceQuery(shopkeeperId, customerName) {
+async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId) {
   let customerDisplayName = customerName || 'ગ્રાહક';
   let balance = 0;
   let customerFound = false;
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
   if (shopkeeperId) {
     try {
@@ -432,7 +444,12 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName) {
         .get();
 
       const customers = [];
-      snapshot.forEach((doc) => customers.push(doc.data()));
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          customers.push(data);
+        }
+      });
 
       if (customerName && customers.length > 0) {
         const normTarget = normalizeGujaratiPhonetics(customerName);
@@ -483,7 +500,7 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName) {
 /**
  * Helper to query customer history for query endpoint.
  */
-async function handleCustomerHistoryQuery(shopkeeperId, customerName) {
+async function handleCustomerHistoryQuery(shopkeeperId, customerName, shopId) {
   let customerDisplayName = customerName || 'ગ્રાહક';
   let totalBorrowed = 0;
   let totalPaid = 0;
@@ -491,6 +508,7 @@ async function handleCustomerHistoryQuery(shopkeeperId, customerName) {
   let lastTransactionDateStr = null;
   let customerFound = false;
   let hasTransactions = false;
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
   if (shopkeeperId) {
     try {
@@ -499,7 +517,12 @@ async function handleCustomerHistoryQuery(shopkeeperId, customerName) {
         .get();
 
       const customers = [];
-      snapshot.forEach((doc) => customers.push({ id: doc.id, ...doc.data() }));
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          customers.push({ id: doc.id, ...data });
+        }
+      });
 
       if (customerName && customers.length > 0) {
         const normTarget = normalizeGujaratiPhonetics(customerName);
@@ -591,9 +614,10 @@ async function handleCustomerHistoryQuery(shopkeeperId, customerName) {
 /**
  * Helper to query inventory status for query endpoint.
  */
-async function handleInventoryStatusQuery(shopkeeperId, itemName) {
+async function handleInventoryStatusQuery(shopkeeperId, itemName, shopId) {
   let answerText = '';
   let answerTextEnglish = '';
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
   if (shopkeeperId) {
     try {
@@ -602,7 +626,12 @@ async function handleInventoryStatusQuery(shopkeeperId, itemName) {
         .get();
 
       const items = [];
-      snapshot.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          items.push({ id: doc.id, ...data });
+        }
+      });
 
       if (itemName && items.length > 0) {
         // Search specific item using fuzzy matching
@@ -663,9 +692,10 @@ async function handleInventoryStatusQuery(shopkeeperId, itemName) {
 /**
  * Helper to query low-stock inventory items for query endpoint.
  */
-async function handleInventoryLowStockQuery(shopkeeperId) {
+async function handleInventoryLowStockQuery(shopkeeperId, shopId) {
   let answerText = '';
   let answerTextEnglish = '';
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
   if (shopkeeperId) {
     try {
@@ -676,15 +706,17 @@ async function handleInventoryLowStockQuery(shopkeeperId) {
       const lowStockItems = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        const qty = Number(data.quantity) || 0;
-        const threshold = Number(data.lowStockThreshold) || 5;
-        const isLow = data.isLowStock !== undefined ? Boolean(data.isLowStock) : qty <= threshold;
-        if (isLow) {
-          lowStockItems.push({
-            itemName: data.itemName || 'Item',
-            quantity: qty,
-            unit: data.unit || 'piece',
-          });
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          const qty = Number(data.quantity) || 0;
+          const threshold = Number(data.lowStockThreshold) || 5;
+          const isLow = data.isLowStock !== undefined ? Boolean(data.isLowStock) : qty <= threshold;
+          if (isLow) {
+            lowStockItems.push({
+              itemName: data.itemName || 'Item',
+              quantity: qty,
+              unit: data.unit || 'piece',
+            });
+          }
         }
       });
 
@@ -711,11 +743,12 @@ async function handleInventoryLowStockQuery(shopkeeperId) {
 /**
  * Helper to query daily summary for query endpoint.
  */
-async function handleDailySummaryQuery(shopkeeperId) {
+async function handleDailySummaryQuery(shopkeeperId, shopId) {
   let totalSales = 0;
   let totalNewUdhaar = 0;
   let totalUdhaarCollected = 0;
   let transactionCount = 0;
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
   if (shopkeeperId) {
     try {
@@ -732,11 +765,13 @@ async function handleDailySummaryQuery(shopkeeperId) {
 
       snapshot.forEach((doc) => {
         const data = doc.data();
-        transactionCount++;
-        const amount = Number(data.amount) || 0;
-        if (data.type === 'sale') totalSales += amount;
-        else if (data.type === 'udhaar_add') totalNewUdhaar += amount;
-        else if (data.type === 'udhaar_paid') totalUdhaarCollected += amount;
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          transactionCount++;
+          const amount = Number(data.amount) || 0;
+          if (data.type === 'sale') totalSales += amount;
+          else if (data.type === 'udhaar_add') totalNewUdhaar += amount;
+          else if (data.type === 'udhaar_paid') totalUdhaarCollected += amount;
+        }
       });
     } catch (err) {
       console.warn('Error fetching daily summary for query:', err.message);
@@ -800,9 +835,11 @@ const processVoiceQuery = async (req, res) => {
         else qType = 'customer_balance';
       }
 
+    const effectiveShopId = getEffectiveShopId(req);
+
       if (qType === 'customer_balance') {
         const custName = mockCustomerName || req.body.mockItemName || 'Ramesh';
-        const result = await handleCustomerBalanceQuery(shopkeeperId, custName);
+      const result = await handleCustomerBalanceQuery(shopkeeperId, custName, effectiveShopId);
         return res.status(200).json({
           isQuery: true,
           queryType: 'customer_balance',
@@ -811,7 +848,7 @@ const processVoiceQuery = async (req, res) => {
         });
       } else if (qType === 'customer_history') {
         const custName = mockCustomerName || 'Ramesh';
-        const result = await handleCustomerHistoryQuery(shopkeeperId, custName);
+      const result = await handleCustomerHistoryQuery(shopkeeperId, custName, effectiveShopId);
         return res.status(200).json({
           isQuery: true,
           queryType: 'customer_history',
@@ -820,7 +857,7 @@ const processVoiceQuery = async (req, res) => {
         });
       } else if (qType === 'inventory_status') {
         const itemName = req.body.mockItemName || null;
-        const result = await handleInventoryStatusQuery(shopkeeperId, itemName);
+      const result = await handleInventoryStatusQuery(shopkeeperId, itemName, effectiveShopId);
         return res.status(200).json({
           isQuery: true,
           queryType: 'inventory_status',
@@ -828,7 +865,7 @@ const processVoiceQuery = async (req, res) => {
           answerTextEnglish: result.answerTextEnglish,
         });
       } else if (qType === 'inventory_low_stock') {
-        const result = await handleInventoryLowStockQuery(shopkeeperId);
+      const result = await handleInventoryLowStockQuery(shopkeeperId, effectiveShopId);
         return res.status(200).json({
           isQuery: true,
           queryType: 'inventory_low_stock',
@@ -836,7 +873,7 @@ const processVoiceQuery = async (req, res) => {
           answerTextEnglish: result.answerTextEnglish,
         });
       } else if (qType === 'daily_summary') {
-        const result = await handleDailySummaryQuery(shopkeeperId);
+      const result = await handleDailySummaryQuery(shopkeeperId, effectiveShopId);
         return res.status(200).json({
           isQuery: true,
           queryType: 'daily_summary',
@@ -858,7 +895,8 @@ const processVoiceQuery = async (req, res) => {
     console.log(`[Voice Query Timing] [${firestoreStartISO}] [1/3] Fetching Firestore customer list for query context...`);
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId, true);
+    const effectiveShopId = getEffectiveShopId(req);
+    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId, effectiveShopId, true);
     const firestoreFetchMs = Date.now() - firestoreStart;
     console.log(`[Voice Query Timing] [${new Date().toISOString()}] [1/3] Firestore fetch finished | Duration: ${firestoreFetchMs}ms | Customer count: ${existingCustomerNames.length}`);
 
@@ -960,7 +998,7 @@ Return ONLY a valid JSON object without markdown formatting:
     console.log(`[Voice Query Timing] [${new Date().toISOString()}] [3/3] End-to-End Voice Query Completed | Total Time: ${totalMs}ms (Firestore: ${firestoreFetchMs}ms, Gemini: ${geminiCallMs}ms)`);
 
     if (queryType === 'customer_balance') {
-      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name);
+      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId);
       return res.status(200).json({
         isQuery: true,
         queryType: 'customer_balance',
@@ -968,7 +1006,7 @@ Return ONLY a valid JSON object without markdown formatting:
         answerTextEnglish: balanceResult.answerTextEnglish,
       });
     } else if (queryType === 'customer_history') {
-      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name);
+      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId);
       return res.status(200).json({
         isQuery: true,
         queryType: 'customer_history',
@@ -976,7 +1014,7 @@ Return ONLY a valid JSON object without markdown formatting:
         answerTextEnglish: historyResult.answerTextEnglish,
       });
     } else if (queryType === 'inventory_status') {
-      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name);
+      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name, effectiveShopId);
       return res.status(200).json({
         isQuery: true,
         queryType: 'inventory_status',
@@ -984,7 +1022,7 @@ Return ONLY a valid JSON object without markdown formatting:
         answerTextEnglish: inventoryResult.answerTextEnglish,
       });
     } else if (queryType === 'inventory_low_stock') {
-      const lowStockResult = await handleInventoryLowStockQuery(shopkeeperId);
+      const lowStockResult = await handleInventoryLowStockQuery(shopkeeperId, effectiveShopId);
       return res.status(200).json({
         isQuery: true,
         queryType: 'inventory_low_stock',
@@ -992,7 +1030,7 @@ Return ONLY a valid JSON object without markdown formatting:
         answerTextEnglish: lowStockResult.answerTextEnglish,
       });
     } else if (queryType === 'daily_summary') {
-      const summaryResult = await handleDailySummaryQuery(shopkeeperId);
+      const summaryResult = await handleDailySummaryQuery(shopkeeperId, effectiveShopId);
       return res.status(200).json({
         isQuery: true,
         queryType: 'daily_summary',

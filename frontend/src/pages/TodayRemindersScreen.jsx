@@ -78,6 +78,15 @@ export default function TodayRemindersScreen() {
 
   useEffect(() => {
     fetchQueue();
+
+    const handleShopChanged = () => {
+      fetchQueue();
+    };
+
+    window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+    return () => {
+      window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
+    };
   }, []);
 
   // Listen for window/tab focus / visibility change when returning from WhatsApp

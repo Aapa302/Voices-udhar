@@ -68,36 +68,46 @@ export default function HomeScreen() {
   const [todayRemindersCount, setTodayRemindersCount] = useState(0);
   const [isTodayRemindersDismissed, setIsTodayRemindersDismissed] = useState(false);
 
-  useEffect(() => {
-    const fetchPendingAlertsAndReminders = async () => {
-      const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
-      if (!shopkeeperId) return;
-      try {
-        const alertsData = await getCustomerAlerts(shopkeeperId, 15);
-        const count = (alertsData.longPending && alertsData.longPending.length) || 0;
-        setPendingAlertCount(count);
+  const fetchPendingAlertsAndReminders = async () => {
+    const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
+    if (!shopkeeperId) return;
+    try {
+      const alertsData = await getCustomerAlerts(shopkeeperId, 15);
+      const count = (alertsData.longPending && alertsData.longPending.length) || 0;
+      setPendingAlertCount(count);
 
-        const remindersData = await getCustomerReminders(shopkeeperId, 30);
-        if (remindersData && remindersData.remindersNeeded) {
-          setReminders(remindersData.remindersNeeded);
-        }
-
-        const todayRes = await getRemindersToday(shopkeeperId);
-        if (todayRes && todayRes.remindersToday) {
-          setTodayRemindersCount(todayRes.remindersToday.length);
-        }
-
-        const inventoryData = await getInventoryApi(shopkeeperId);
-        const lowStockItems = (inventoryData || []).filter(
-          (item) => item.isLowStock || Number(item.quantity) <= Number(item.lowStockThreshold || 5)
-        );
-        setLowStockCount(lowStockItems.length);
-      } catch (err) {
-        console.error('Failed to fetch alerts/reminders/inventory for home screen:', err);
+      const remindersData = await getCustomerReminders(shopkeeperId, 30);
+      if (remindersData && remindersData.remindersNeeded) {
+        setReminders(remindersData.remindersNeeded);
       }
+
+      const todayRes = await getRemindersToday(shopkeeperId);
+      if (todayRes && todayRes.remindersToday) {
+        setTodayRemindersCount(todayRes.remindersToday.length);
+      }
+
+      const inventoryData = await getInventoryApi(shopkeeperId);
+      const lowStockItems = (inventoryData || []).filter(
+        (item) => item.isLowStock || Number(item.quantity) <= Number(item.lowStockThreshold || 5)
+      );
+      setLowStockCount(lowStockItems.length);
+    } catch (err) {
+      console.error('Failed to fetch alerts/reminders/inventory for home screen:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPendingAlertsAndReminders();
+
+    const handleShopChanged = () => {
+      resetToIdle();
+      fetchPendingAlertsAndReminders();
     };
 
-    fetchPendingAlertsAndReminders();
+    window.addEventListener('voice_udhar_shop_changed', handleShopChanged);
+    return () => {
+      window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
+    };
   }, []);
 
   const handleSendReminder = async (reminder) => {

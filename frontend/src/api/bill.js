@@ -36,14 +36,16 @@ async function handleApiResponse(response, defaultErrorMsg) {
  */
 export async function generateBillApi(billPayload) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/bill/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
-    body: JSON.stringify(billPayload),
+    body: JSON.stringify({ ...billPayload, shopId }),
   });
 
   return await handleApiResponse(response, 'બિલ બનાવવામાં ભૂલ આવી / Failed to generate bill');

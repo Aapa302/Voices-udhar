@@ -36,14 +36,16 @@ async function handleApiResponse(response, defaultErrorMsg) {
  */
 export async function logTransaction(txData) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/transactions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
-    body: JSON.stringify(txData),
+    body: JSON.stringify({ ...txData, shopId }),
   });
 
   const data = await handleApiResponse(response, 'ટ્રાન્ઝેક્શન સેવ કરવામાં ભૂલ આવી / Failed to save transaction');
@@ -57,11 +59,13 @@ export async function logTransaction(txData) {
  */
 export async function getTransactionsByCustomer(customerId) {
   const apiKey = localStorage.getItem('voice_udhar_api_key') || '';
+  const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
 
   const response = await fetch(`${API_BASE_URL}/api/transactions/${customerId}`, {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
+      'x-shop-id': shopId,
     },
   });
 

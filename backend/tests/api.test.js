@@ -1094,6 +1094,125 @@ describe('Voice Udhar API Integration Tests', () => {
     });
   });
 
+  describe('Shops & Multi-Shop Data Isolation API', () => {
+    beforeEach(async () => {
+      const skRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Main Store',
+          phone: '9876543210',
+        });
+      shopkeeperId = skRes.body.data.shopkeeperId;
+      apiKey = skRes.body.data.apiKey;
+    });
+
+    it('GET /api/shops should lazily auto-create default shop for existing shopkeepers', async () => {
+      const res = await request(app)
+        .get('/api/shops')
+        .set('x-api-key', apiKey);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBe(1);
+      expect(res.body.data[0].shopName).toBe('Main Store');
+      expect(res.body.data[0].isDefault).toBe(true);
+    });
+
+    it('POST /api/shops should create additional shops under the same shopkeeper', async () => {
+      const createRes = await request(app)
+        .post('/api/shops')
+        .set('x-api-key', apiKey)
+        .send({
+          shopName: 'Branch 2 - Provisions',
+          upiId: 'branch2@paytm',
+        });
+
+      expect(createRes.status).toBe(201);
+      expect(createRes.body.shopName).toBe('Branch 2 - Provisions');
+
+      const listRes = await request(app)
+        .get('/api/shops')
+        .set('x-api-key', apiKey);
+
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.data.length).toBe(2);
+    });
+
+    it('should isolate customers, transactions, and inventory between distinct shops', async () => {
+      // 1. Create second shop
+      const shop2Res = await request(app)
+        .post('/api/shops')
+        .set('x-api-key', apiKey)
+        .send({ shopName: 'Shop 2' });
+
+      const shop2Id = shop2Res.body.shopId;
+      const shop1Id = `shop_${shopkeeperId}`;
+
+      // 2. Add Customer 1 to Shop 1
+      const c1Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop1Id)
+        .send({ name: 'Shop 1 Customer', phone: '1111111111', totalUdhaar: 100 });
+
+      // 3. Add Customer 2 to Shop 2
+      const c2Res = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop2Id)
+        .send({ name: 'Shop 2 Customer', phone: '2222222222', totalUdhaar: 200 });
+
+      // 4. Verify GET /api/customers for Shop 1 returns only Customer 1
+      const shop1Custs = await request(app)
+        .get(`/api/customers/${shopkeeperId}`)
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop1Id);
+
+      expect(shop1Custs.status).toBe(200);
+      expect(shop1Custs.body.data.length).toBe(1);
+      expect(shop1Custs.body.data[0].name).toBe('Shop 1 Customer');
+
+      // 5. Verify GET /api/customers for Shop 2 returns only Customer 2
+      const shop2Custs = await request(app)
+        .get(`/api/customers/${shopkeeperId}`)
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop2Id);
+
+      expect(shop2Custs.status).toBe(200);
+      expect(shop2Custs.body.data.length).toBe(1);
+      expect(shop2Custs.body.data[0].name).toBe('Shop 2 Customer');
+
+      // 6. Add Inventory to Shop 1 and Shop 2
+      await request(app)
+        .post('/api/inventory')
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop1Id)
+        .send({ itemName: 'Item Shop 1', quantity: 10 });
+
+      await request(app)
+        .post('/api/inventory')
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop2Id)
+        .send({ itemName: 'Item Shop 2', quantity: 20 });
+
+      const shop1Inv = await request(app)
+        .get(`/api/inventory/${shopkeeperId}`)
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop1Id);
+
+      expect(shop1Inv.body.data.length).toBe(1);
+      expect(shop1Inv.body.data[0].itemName).toBe('Item Shop 1');
+
+      const shop2Inv = await request(app)
+        .get(`/api/inventory/${shopkeeperId}`)
+        .set('x-api-key', apiKey)
+        .set('x-shop-id', shop2Id);
+
+      expect(shop2Inv.body.data.length).toBe(1);
+      expect(shop2Inv.body.data[0].itemName).toBe('Item Shop 2');
+    });
+  });
+
   describe('Data Export API', () => {
     beforeEach(async () => {
       const skRes = await request(app)

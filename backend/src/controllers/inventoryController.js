@@ -1,6 +1,7 @@
 const { db } = require('../config/firebase');
 const { v4: uuidv4 } = require('uuid');
 const { levenshteinDistance, normalizeGujaratiPhonetics } = require('./voiceController');
+const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
 
 /**
  * Helper to fuzzy match an item name against an array of existing inventory items.
@@ -97,14 +98,21 @@ const addOrUpdateInventoryItem = async (req, res) => {
       });
     }
 
-    // Fetch existing inventory for this shopkeeper
+    const effectiveShopId = getEffectiveShopId(req);
+
+    // Fetch existing inventory for this shopkeeper & shopId
     const snapshot = await db
       .collection('inventory')
       .where('shopkeeperId', '==', authShopkeeperId)
       .get();
 
     const existingItems = [];
-    snapshot.forEach((doc) => existingItems.push({ docId: doc.id, ...doc.data() }));
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        existingItems.push({ docId: doc.id, ...data });
+      }
+    });
 
     const matchedItem = findMatchingInventoryItem(itemName, existingItems);
 
@@ -133,6 +141,7 @@ const addOrUpdateInventoryItem = async (req, res) => {
         ...updatedData,
         itemId: matchedItem.itemId || matchedItem.docId,
         shopkeeperId: authShopkeeperId,
+        shopId: effectiveShopId || matchedItem.shopId || `shop_${authShopkeeperId}`,
       };
 
       return res.status(200).json({
@@ -151,6 +160,7 @@ const addOrUpdateInventoryItem = async (req, res) => {
       const newItemData = {
         itemId,
         shopkeeperId: authShopkeeperId,
+        shopId: effectiveShopId || `shop_${authShopkeeperId}`,
         itemName: itemName.trim(),
         quantity: numericQty,
         unit: itemUnit,
@@ -206,6 +216,7 @@ const getInventory = async (req, res) => {
       });
     }
 
+    const effectiveShopId = getEffectiveShopId(req);
     const snapshot = await db
       .collection('inventory')
       .where('shopkeeperId', '==', authShopkeeperId)
@@ -214,17 +225,19 @@ const getInventory = async (req, res) => {
     const items = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
-      const quantity = Number(data.quantity) || 0;
-      const lowStockThreshold = Number(data.lowStockThreshold) || 5;
-      const isLowStock = data.isLowStock !== undefined ? Boolean(data.isLowStock) : quantity <= lowStockThreshold;
+      if (isDocInShop(data, effectiveShopId, authShopkeeperId)) {
+        const quantity = Number(data.quantity) || 0;
+        const lowStockThreshold = Number(data.lowStockThreshold) || 5;
+        const isLowStock = data.isLowStock !== undefined ? Boolean(data.isLowStock) : quantity <= lowStockThreshold;
 
-      items.push({
-        ...data,
-        itemId: data.itemId || doc.id,
-        quantity,
-        lowStockThreshold,
-        isLowStock,
-      });
+        items.push({
+          ...data,
+          itemId: data.itemId || doc.id,
+          quantity,
+          lowStockThreshold,
+          isLowStock,
+        });
+      }
     });
 
     // Sort with low-stock items first, then alphabetically by itemName
