@@ -89,8 +89,9 @@ async function recordModelSuccess(modelName) {
         },
         { merge: true }
       );
+      console.log(`[Gemini] Firestore model health updated successfully for ${modelName}: consecutiveFailures=0`);
     } catch (err) {
-      console.warn(`[Gemini] Failed to update success health in Firestore for ${modelName}: ${err.message}`);
+      console.error(`[Gemini] Firestore model health update FAILED for ${modelName}: ${err.message}`);
     }
   }
 }
@@ -100,22 +101,21 @@ async function recordModelFailure(modelName) {
   const prev = modelFailureCounts.get(modelName) || 0;
   const current = prev + 1;
   modelFailureCounts.set(modelName, current);
+  console.log(`[Gemini] ${modelName} failure count now: ${current}`);
 
-  // State change criteria: failure that crosses the 2-failure threshold (prev < 2 && current >= 2)
-  if (prev < 2 && current >= 2) {
-    try {
-      const nowISO = new Date().toISOString();
-      await db.collection('geminiModelHealth').doc(modelName).set(
-        {
-          modelName,
-          consecutiveFailures: current,
-          lastFailureAt: nowISO,
-        },
-        { merge: true }
-      );
-    } catch (err) {
-      console.warn(`[Gemini] Failed to update failure health in Firestore for ${modelName}: ${err.message}`);
-    }
+  try {
+    const nowISO = new Date().toISOString();
+    await db.collection('geminiModelHealth').doc(modelName).set(
+      {
+        modelName,
+        consecutiveFailures: current,
+        lastFailureAt: nowISO,
+      },
+      { merge: true }
+    );
+    console.log(`[Gemini] Firestore model health updated successfully for ${modelName}: consecutiveFailures=${current}`);
+  } catch (err) {
+    console.error(`[Gemini] Firestore model health update FAILED for ${modelName}: ${err.message}`);
   }
 }
 
@@ -308,12 +308,12 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
   const attemptTimeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : 6000;
   let lastError = null;
 
-  // Filter candidates to skip models with 2+ consecutive failures
-  let candidatesToAttempt = rawCandidates.filter((model) => (modelFailureCounts.get(model) || 0) < 2);
+  // Filter candidates to skip models with 1+ consecutive failures
+  let candidatesToAttempt = rawCandidates.filter((model) => (modelFailureCounts.get(model) || 0) < 1);
 
-  // If ALL candidates have failed 2+ times, reset failure counts so we don't permanently block requests
+  // If ALL candidates have failed 1+ times, reset failure counts so we don't permanently block requests
   if (candidatesToAttempt.length === 0) {
-    console.warn('[Gemini] All candidate models have 2+ consecutive failures. Resetting failure counts to retry candidate list.');
+    console.warn('[Gemini] All candidate models have 1+ consecutive failures. Resetting failure counts to retry candidate list.');
     await resetModelFailureCounts();
     candidatesToAttempt = [...rawCandidates];
   }
@@ -321,8 +321,8 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
   // Log skipped models
   for (const modelName of rawCandidates) {
     const failures = modelFailureCounts.get(modelName) || 0;
-    if (failures >= 2) {
-      console.log(`[Gemini] Skipping ${modelName} — failed ${failures} consecutive times, will retry after cooldown`);
+    if (failures >= 1) {
+      console.log(`[Gemini] Skipping ${modelName} — failed ${failures} consecutive time${failures === 1 ? '' : 's'}, will retry after cooldown`);
     }
   }
 
@@ -416,6 +416,8 @@ module.exports = {
   resetCache,
   resetModelFailureCounts,
   getModelFailureCount,
+  recordModelSuccess,
+  recordModelFailure,
   loadModelHealthFromFirestore,
   DEFAULT_CANDIDATE_MODELS,
 };

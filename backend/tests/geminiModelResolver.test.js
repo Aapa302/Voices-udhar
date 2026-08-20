@@ -10,6 +10,8 @@ const {
   resetCache,
   resetModelFailureCounts,
   getModelFailureCount,
+  recordModelSuccess,
+  recordModelFailure,
   loadModelHealthFromFirestore,
   DEFAULT_CANDIDATE_MODELS,
 } = require('../src/config/geminiModelResolver');
@@ -254,7 +256,7 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       logSpy.mockRestore();
     });
 
-    test('skips models with 2 or more consecutive failures and logs skipping message', async () => {
+    test('skips models with 1 or more consecutive failures and logs skipping message', async () => {
       process.env.GEMINI_API_KEY = 'test-key';
 
       const error503 = { status: 503, message: 'Server Overloaded' };
@@ -274,22 +276,15 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
 
       mockGenAI.getGenerativeModel.mockClear();
 
-      // Call 2: Model 0 fails again, Model 1 succeeds -> Model 0 failure count = 2
-      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(2);
-
-      mockGenAI.getGenerativeModel.mockClear();
-
-      // Call 3: Model 0 now has 2 consecutive failures and MUST BE SKIPPED completely!
-      // It should NOT be called at all, and log "Skipping ..." should be printed.
+      // Call 2: Model 0 now has 1 consecutive failure and MUST BE SKIPPED on subsequent request!
       const generateFnAllOk = jest.fn().mockResolvedValue({ response: { text: () => 'Success' } });
-      const result3 = await generateWithFallback(mockGenAI, generateFnAllOk, { retryDelayMs: 0 });
+      const result2 = await generateWithFallback(mockGenAI, generateFnAllOk, { retryDelayMs: 0 });
 
-      expect(result3.response.text()).toBe('Success');
+      expect(result2.response.text()).toBe('Success');
       expect(mockGenAI.getGenerativeModel).toHaveBeenCalledTimes(1);
       expect(mockGenAI.getGenerativeModel).toHaveBeenNthCalledWith(1, { model: DEFAULT_CANDIDATE_MODELS[1] });
       expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`[Gemini] Skipping ${DEFAULT_CANDIDATE_MODELS[0]} — failed 2 consecutive times, will retry after cooldown`)
+        expect.stringContaining(`[Gemini] Skipping ${DEFAULT_CANDIDATE_MODELS[0]} — failed 1 consecutive time, will retry after cooldown`)
       );
 
       warnSpy.mockRestore();
@@ -313,9 +308,8 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[1])).toBe(0);
 
-      // Now Model 0 succeeds
-      const generateFnFirstOk = jest.fn().mockResolvedValue({ response: { text: () => 'Model 0 Succeeded' } });
-      await generateWithFallback(mockGenAI, generateFnFirstOk, { retryDelayMs: 0 });
+      // Test recordModelSuccess on Model 0 directly
+      await recordModelSuccess(DEFAULT_CANDIDATE_MODELS[0]);
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(0);
 
       warnSpy.mockRestore();
@@ -336,10 +330,9 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      // Cause Model 0 to fail twice
+      // Cause Model 0 to fail
       await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(2);
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
 
       // Reset failure counts manually (mimicking 12-hour cooldown timer)
       await resetModelFailureCounts();
@@ -392,7 +385,7 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       logSpy.mockRestore();
     });
 
-    test('persists failure to Firestore only when crossing 2-failure threshold', async () => {
+    test('persists failure to Firestore on every failure', async () => {
       process.env.GEMINI_API_KEY = 'test-key';
 
       const error503 = { status: 503, message: 'Transient 503' };
@@ -406,21 +399,14 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      // Failure 1 (1 failure, below threshold) -> no Firestore write expected
+      // Failure 1 -> writes to Firestore immediately
       await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      let docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
-      expect(docSnap.exists).toBe(false);
-
-      // Failure 2 (2 failures, reaches threshold) -> writes to Firestore
-      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
+      const docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
       expect(docSnap.exists).toBe(true);
-      expect(docSnap.data().consecutiveFailures).toBe(2);
-
-      // Failure 3 (already >= 2) -> does NOT write again (avoiding excessive writes)
-      const setSpy = jest.spyOn(db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]), 'set');
-      await generateWithFallback(mockGenAI, generateFnFailFirst, { retryDelayMs: 0 });
-      expect(setSpy).not.toHaveBeenCalled();
+      expect(docSnap.data().consecutiveFailures).toBe(1);
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`[Gemini] Firestore model health updated successfully for ${DEFAULT_CANDIDATE_MODELS[0]}: consecutiveFailures=1`)
+      );
 
       warnSpy.mockRestore();
       logSpy.mockRestore();
@@ -442,8 +428,7 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
 
       expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
 
-      const generateFnFirstOk = jest.fn().mockResolvedValue({ response: { text: () => 'Model 0 Succeeded' } });
-      await generateWithFallback(mockGenAI, generateFnFirstOk, { retryDelayMs: 0 });
+      await recordModelSuccess(DEFAULT_CANDIDATE_MODELS[0]);
 
       const docSnap = await db.collection('geminiModelHealth').doc(DEFAULT_CANDIDATE_MODELS[0]).get();
       expect(docSnap.data().consecutiveFailures).toBe(0);
