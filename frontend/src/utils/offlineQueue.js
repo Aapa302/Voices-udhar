@@ -132,3 +132,38 @@ export async function getAllPendingRecordings() {
     return JSON.parse(localStorage.getItem('voice_udhar_pending_recordings') || '[]');
   }
 }
+
+/**
+ * Delete a pending offline recording by ID.
+ * @param {number|string} id
+ * @returns {Promise<boolean>}
+ */
+export async function deletePendingRecording(id) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(id);
+
+      request.onsuccess = () => {
+        resolve(true);
+      };
+
+      request.onerror = (err) => {
+        console.error('Error deleting pending recording from IndexedDB:', err);
+        resolve(false);
+      };
+    });
+  } catch (err) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('voice_udhar_pending_recordings') || '[]');
+      const filtered = saved.filter((item) => item.id !== id);
+      localStorage.setItem('voice_udhar_pending_recordings', JSON.stringify(filtered));
+      return true;
+    } catch (e) {
+      console.error('Error deleting pending recording from localStorage:', e);
+      return false;
+    }
+  }
+}
