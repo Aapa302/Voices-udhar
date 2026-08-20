@@ -1,3 +1,5 @@
+const { db } = require('./firebase');
+
 const DEFAULT_CANDIDATE_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.0-flash',
@@ -6,6 +8,7 @@ const DEFAULT_CANDIDATE_MODELS = [
 ];
 
 let cachedCandidateModels = null;
+let isHealthLoaded = false;
 
 // Map of modelName -> number of consecutive failures during this server session
 const modelFailureCounts = new Map();
@@ -13,9 +16,52 @@ const modelFailureCounts = new Map();
 // 10-minute cooldown interval to reset all model failure counts
 const COOLDOWN_RESET_INTERVAL_MS = 10 * 60 * 1000;
 
-function resetModelFailureCounts() {
+async function loadModelHealthFromFirestore() {
+  if (isHealthLoaded) return;
+  try {
+    const snapshot = await db.collection('geminiModelHealth').get();
+    if (!snapshot || snapshot.empty) {
+      console.log('[Gemini] Loaded model health from Firestore: (no failure history found)');
+    } else {
+      const summaryItems = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data() || {};
+        const modelName = doc.id || data.modelName;
+        const failures = data.consecutiveFailures || 0;
+        modelFailureCounts.set(modelName, failures);
+        summaryItems.push(`${modelName} (${failures} failure${failures === 1 ? '' : 's'})`);
+      });
+      console.log(`[Gemini] Loaded model health from Firestore: ${summaryItems.join(', ')}`);
+    }
+    isHealthLoaded = true;
+  } catch (err) {
+    console.warn(`[Gemini] Failed to load model health from Firestore: ${err.message}`);
+  }
+}
+
+async function resetModelFailureCounts() {
   modelFailureCounts.clear();
   console.log('[Gemini] All model failure counts reset (cooldown timer / cache reset)');
+
+  try {
+    const snapshot = await db.collection('geminiModelHealth').get();
+    if (snapshot && !snapshot.empty) {
+      const batch = db.batch();
+      let hasUpdates = false;
+      snapshot.forEach((doc) => {
+        if ((doc.data().consecutiveFailures || 0) > 0) {
+          batch.set(db.collection('geminiModelHealth').doc(doc.id), { consecutiveFailures: 0 }, { merge: true });
+          hasUpdates = true;
+        }
+      });
+      if (hasUpdates) {
+        await batch.commit();
+        console.log('[Gemini] Model health failure counts reset in Firestore (cooldown)');
+      }
+    }
+  } catch (err) {
+    console.warn(`[Gemini] Failed to reset model health in Firestore: ${err.message}`);
+  }
 }
 
 const cooldownTimer = setInterval(() => {
@@ -26,15 +72,51 @@ if (cooldownTimer && typeof cooldownTimer.unref === 'function') {
   cooldownTimer.unref();
 }
 
-function recordModelSuccess(modelName) {
+async function recordModelSuccess(modelName) {
   if (!modelName) return;
+  const prev = modelFailureCounts.get(modelName) || 0;
   modelFailureCounts.set(modelName, 0);
+
+  // State change criteria: success after failures
+  if (prev > 0) {
+    try {
+      const nowISO = new Date().toISOString();
+      await db.collection('geminiModelHealth').doc(modelName).set(
+        {
+          modelName,
+          consecutiveFailures: 0,
+          lastSuccessAt: nowISO,
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn(`[Gemini] Failed to update success health in Firestore for ${modelName}: ${err.message}`);
+    }
+  }
 }
 
-function recordModelFailure(modelName) {
+async function recordModelFailure(modelName) {
   if (!modelName) return;
-  const current = modelFailureCounts.get(modelName) || 0;
-  modelFailureCounts.set(modelName, current + 1);
+  const prev = modelFailureCounts.get(modelName) || 0;
+  const current = prev + 1;
+  modelFailureCounts.set(modelName, current);
+
+  // State change criteria: failure that crosses the 2-failure threshold (prev < 2 && current >= 2)
+  if (prev < 2 && current >= 2) {
+    try {
+      const nowISO = new Date().toISOString();
+      await db.collection('geminiModelHealth').doc(modelName).set(
+        {
+          modelName,
+          consecutiveFailures: current,
+          lastFailureAt: nowISO,
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn(`[Gemini] Failed to update failure health in Firestore for ${modelName}: ${err.message}`);
+    }
+  }
 }
 
 function getModelFailureCount(modelName) {
@@ -124,6 +206,8 @@ function selectCandidateModels(models) {
  * Resolves and caches the ordered list of candidate models from Google ListModels REST API.
  */
 async function getCandidateModels(apiKeyOverride) {
+  await loadModelHealthFromFirestore();
+
   if (cachedCandidateModels && cachedCandidateModels.length > 0) {
     return cachedCandidateModels;
   }
@@ -215,6 +299,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {Object} options - Optional config { retryDelayMs, timeoutMs }
  */
 async function generateWithFallback(genAI, generateContentFn, options = {}) {
+  await loadModelHealthFromFirestore();
+
   const candidatesStart = Date.now();
   const rawCandidates = await getCandidateModels();
   const candidatesDuration = Date.now() - candidatesStart;
@@ -228,7 +314,7 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
   // If ALL candidates have failed 2+ times, reset failure counts so we don't permanently block requests
   if (candidatesToAttempt.length === 0) {
     console.warn('[Gemini] All candidate models have 2+ consecutive failures. Resetting failure counts to retry candidate list.');
-    resetModelFailureCounts();
+    await resetModelFailureCounts();
     candidatesToAttempt = [...rawCandidates];
   }
 
@@ -270,7 +356,7 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
       const attemptDuration = Date.now() - attemptStart;
       const attemptEndISO = new Date().toISOString();
 
-      recordModelSuccess(modelName);
+      await recordModelSuccess(modelName);
 
       if (i === 0) {
         console.log(`[Gemini Call Attempt 1 Success] Finished at ${attemptEndISO} | Model: ${modelName} | Duration: ${attemptDuration}ms | First model succeeded, no fallback models attempted.`);
@@ -283,7 +369,7 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
       const attemptDuration = Date.now() - attemptStart;
       const attemptEndISO = new Date().toISOString();
       lastError = error;
-      recordModelFailure(modelName);
+      await recordModelFailure(modelName);
 
       if (error.isTimeout) {
         console.warn(`[Gemini] Model ${modelName} timed out after ${attemptTimeoutMs / 1000}s, trying next candidate`);
@@ -314,7 +400,8 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
  */
 function resetCache() {
   cachedCandidateModels = null;
-  resetModelFailureCounts();
+  isHealthLoaded = false;
+  modelFailureCounts.clear();
 }
 
 module.exports = {
@@ -329,5 +416,6 @@ module.exports = {
   resetCache,
   resetModelFailureCounts,
   getModelFailureCount,
+  loadModelHealthFromFirestore,
   DEFAULT_CANDIDATE_MODELS,
 };
