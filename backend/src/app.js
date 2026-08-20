@@ -22,7 +22,11 @@ app.use(express.json({ limit: '10mb' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', service: 'Voice Udhar Backend' });
+  res.status(200).json({
+    status: 'ok',
+    service: 'Voice Udhar Backend',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // API Routes
