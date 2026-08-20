@@ -12,4 +12,7 @@ router.post('/', shopkeeperController.createShopkeeper);
 // GET /api/shopkeepers/:id — get shopkeeper details (requires x-api-key)
 router.get('/:id', shopkeeperController.getShopkeeper);
 
+// PUT /api/shopkeepers/:id — update shopkeeper profile (requires x-api-key)
+router.put('/:id', shopkeeperController.updateShopkeeper);
+
 module.exports = router;

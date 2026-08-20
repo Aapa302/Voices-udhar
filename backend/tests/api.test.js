@@ -1015,19 +1015,20 @@ describe('Voice Udhar API Integration Tests', () => {
     });
   });
 
-  describe('Bill Generation API', () => {
+  describe('Bill Generation API & UPI QR Code', () => {
     beforeEach(async () => {
       const skRes = await request(app)
         .post('/api/shopkeepers')
         .send({
           shopName: 'Ambika Provision',
           phone: '9876543210',
+          upiId: '9876543210@paytm',
         });
       shopkeeperId = skRes.body.data.shopkeeperId;
       apiKey = skRes.body.data.apiKey;
     });
 
-    it('POST /api/bill/generate should generate PDF base64 and WhatsApp share link', async () => {
+    it('POST /api/bill/generate should generate PDF base64, WhatsApp share link, and UPI QR code when upiId is present', async () => {
       const res = await request(app)
         .post('/api/bill/generate')
         .set('x-api-key', apiKey)
@@ -1044,6 +1045,52 @@ describe('Voice Udhar API Integration Tests', () => {
       expect(res.body).toHaveProperty('whatsappShareLink');
       expect(res.body.whatsappShareLink).toContain('https://wa.me/');
       expect(res.body.shopName).toBe('Ambika Provision');
+      expect(res.body.upiId).toBe('9876543210@paytm');
+      expect(res.body.upiQrCodeBase64).toContain('data:image/png;base64,');
+    });
+
+    it('POST /api/bill/generate should skip UPI QR code generation if shopkeeper has no upiId', async () => {
+      const skNoUpi = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'No UPI Shop',
+          phone: '1231231234',
+        });
+
+      const res = await request(app)
+        .post('/api/bill/generate')
+        .set('x-api-key', skNoUpi.body.data.apiKey)
+        .send({
+          shopkeeperId: skNoUpi.body.data.shopkeeperId,
+          customerName: 'Test Customer',
+          totalAmount: 200,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.upiQrCodeBase64).toBeNull();
+    });
+
+    it('PUT /api/shopkeepers/:id should update upiId and reflect in subsequent bill generation', async () => {
+      const updateRes = await request(app)
+        .put(`/api/shopkeepers/${shopkeeperId}`)
+        .set('x-api-key', apiKey)
+        .send({ upiId: 'updated@ybl' });
+
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.upiId).toBe('updated@ybl');
+
+      const billRes = await request(app)
+        .post('/api/bill/generate')
+        .set('x-api-key', apiKey)
+        .send({
+          shopkeeperId,
+          customerName: 'Patel Bhai',
+          totalAmount: 100,
+        });
+
+      expect(billRes.status).toBe(200);
+      expect(billRes.body.upiId).toBe('updated@ybl');
+      expect(billRes.body.upiQrCodeBase64).toContain('data:image/png;base64,');
     });
   });
 

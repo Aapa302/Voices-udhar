@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { createShopkeeper } from '../api/shopkeeper';
-import { Store, Phone, ArrowRight, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
+import { Store, Phone, ArrowRight, Loader2, Sparkles, ShieldCheck, QrCode } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function Onboarding({ onComplete }) {
   const [shopName, setShopName] = useState('');
   const [phone, setPhone] = useState('');
+  const [upiId, setUpiId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(() => {
     const savedErr = localStorage.getItem('voice_udhar_auth_error');
@@ -34,6 +35,7 @@ export default function Onboarding({ onComplete }) {
       const response = await createShopkeeper({
         shopName: trimmedShopName,
         phone: trimmedPhone,
+        upiId: upiId.trim(),
       });
 
       const shopkeeperData = response.data;
@@ -158,6 +160,25 @@ export default function Onboarding({ onComplete }) {
               onChange={(e) => setPhone(e.target.value)}
               disabled={loading}
               required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="upiId">
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#F8FAFC' }}>
+                <QrCode size={20} color="#F0C674" />
+                UPI ID (ચુકવણી QR માટે)
+              </span>
+              <span className="form-sublabel">UPI ID for Payment QR (Optional)</span>
+            </label>
+            <input
+              id="upiId"
+              type="text"
+              className="form-input"
+              placeholder="દા.ત. 9876543210@paytm / name@upi"
+              value={upiId}
+              onChange={(e) => setUpiId(e.target.value)}
+              disabled={loading}
             />
           </div>
 

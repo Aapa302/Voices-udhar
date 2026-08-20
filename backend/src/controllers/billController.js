@@ -1,4 +1,5 @@
 const PDFDocument = require('pdfkit');
+const QRCode = require('qrcode');
 const { db } = require('../config/firebase');
 
 /**
@@ -83,12 +84,32 @@ const generateBill = async (req, res) => {
     let shopName = 'Voice Udhar Shop';
     let customerName = inputCustomerName || 'Valued Customer';
     let customerPhone = inputCustomerPhone || '';
+    let upiId = '';
 
     // Fetch shopkeeper details from Firestore if shopkeeperId provided
     if (shopkeeperId) {
       const shopDoc = await db.collection('shopkeepers').doc(shopkeeperId).get();
       if (shopDoc.exists) {
-        shopName = shopDoc.data().shopName || shopName;
+        const shopData = shopDoc.data();
+        shopName = shopData.shopName || shopName;
+        upiId = shopData.upiId || upiId;
+      }
+    }
+
+    // Generate UPI QR Code image if shopkeeper has set a UPI ID
+    let upiQrCodeBase64 = null;
+    let upiUri = null;
+
+    if (upiId && upiId.trim()) {
+      upiUri = `upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(shopName.trim())}&am=${encodeURIComponent(totalAmount)}&cu=INR`;
+      try {
+        upiQrCodeBase64 = await QRCode.toDataURL(upiUri, {
+          errorCorrectionLevel: 'M',
+          margin: 2,
+          width: 250,
+        });
+      } catch (qrErr) {
+        console.warn('Warning: Failed to generate UPI QR code:', qrErr.message);
       }
     }
 
@@ -148,6 +169,8 @@ const generateBill = async (req, res) => {
       customerName,
       totalAmount,
       date: billDate,
+      upiId: upiId || null,
+      upiQrCodeBase64: upiQrCodeBase64 || null,
       whatsappShareLink,
       pdfBase64: pdfBuffer.toString('base64'),
     });
