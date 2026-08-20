@@ -1094,6 +1094,74 @@ describe('Voice Udhar API Integration Tests', () => {
     });
   });
 
+  describe('Data Export API', () => {
+    beforeEach(async () => {
+      const skRes = await request(app)
+        .post('/api/shopkeepers')
+        .send({
+          shopName: 'Export Test Store',
+          phone: '9876543210',
+        });
+      shopkeeperId = skRes.body.data.shopkeeperId;
+      apiKey = skRes.body.data.apiKey;
+
+      const custRes = await request(app)
+        .post('/api/customers')
+        .set('x-api-key', apiKey)
+        .send({
+          name: 'Export Customer 1',
+          phone: '9988776655',
+          totalUdhaar: 350,
+        });
+
+      await request(app)
+        .post('/api/transactions')
+        .set('x-api-key', apiKey)
+        .send({
+          customerId: custRes.body.data.customerId,
+          type: 'udhaar_add',
+          amount: 350,
+          items: ['Rice', 'Sugar'],
+        });
+    });
+
+    it('GET /api/export/:shopkeeperId?format=excel should return Excel spreadsheet buffer', async () => {
+      const res = await request(app)
+        .get(`/api/export/${shopkeeperId}?format=excel`)
+        .set('x-api-key', apiKey)
+        .responseType('blob');
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      expect(res.headers['content-disposition']).toContain('data_export');
+      expect(Buffer.isBuffer(res.body)).toBe(true);
+    });
+
+    it('GET /api/export/:shopkeeperId?format=pdf should return PDF document buffer', async () => {
+      const res = await request(app)
+        .get(`/api/export/${shopkeeperId}?format=pdf`)
+        .set('x-api-key', apiKey)
+        .responseType('blob');
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/pdf');
+      expect(res.headers['content-disposition']).toContain('data_export');
+      expect(Buffer.isBuffer(res.body)).toBe(true);
+    });
+
+    it('GET /api/export/:shopkeeperId should enforce tenant isolation', async () => {
+      const otherSk = await request(app)
+        .post('/api/shopkeepers')
+        .send({ shopName: 'Other Shop', phone: '0000000000' });
+
+      const res = await request(app)
+        .get(`/api/export/${otherSk.body.data.shopkeeperId}?format=excel`)
+        .set('x-api-key', apiKey);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('Daily Summary API', () => {
     beforeEach(async () => {
       const skRes = await request(app)
