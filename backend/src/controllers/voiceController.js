@@ -118,13 +118,16 @@ const CUSTOMER_CACHE_TTL_MS = 60000;
 /**
  * Helper to fetch customer names with 60s in-memory caching and 50 record limit.
  */
-async function getCachedCustomerNames(shopkeeperId) {
+async function getCachedCustomerNames(shopkeeperId, logDetails = true) {
   if (!shopkeeperId || process.env.USE_MOCK_DB === 'true') {
     return [];
   }
 
   const cached = customerCache.get(shopkeeperId);
   if (cached && Date.now() - cached.timestamp < CUSTOMER_CACHE_TTL_MS) {
+    if (logDetails) {
+      console.log(`[Voice Timing] Firestore customer list fetched from memory CACHE (TTL hit, ${cached.names.length} names)`);
+    }
     return cached.names;
   }
 
@@ -137,6 +140,9 @@ async function getCachedCustomerNames(shopkeeperId) {
 
     const names = snapshot.docs.map((doc) => doc.data().name).filter(Boolean);
     customerCache.set(shopkeeperId, { names, timestamp: Date.now() });
+    if (logDetails) {
+      console.log(`[Voice Timing] Firestore customer list queried from Firestore DB (cache miss, ${names.length} names)`);
+    }
     return names;
   } catch (dbErr) {
     console.warn('Failed to fetch existing customers for voice context:', dbErr.message);
@@ -152,22 +158,32 @@ async function getCachedCustomerNames(shopkeeperId) {
  */
 const processVoice = async (req, res) => {
   const reqStart = Date.now();
+  const reqStartISO = new Date(reqStart).toISOString();
+  console.log(`[Voice Timing] [${reqStartISO}] POST /api/voice/process - Request received`);
+
   try {
     const { audioData, audioBase64, mimeType = 'audio/mp3' } = req.body;
     const base64Content = audioBase64 || audioData;
 
     if (!base64Content) {
+      const totalMs = Date.now() - reqStart;
+      console.log(`[Voice Timing] [${new Date().toISOString()}] Bad Request returned in ${totalMs}ms`);
       return res.status(400).json({
         error: 'Bad Request',
         message: 'audioBase64 or audioData (base64 encoded audio) is required',
       });
     }
 
-    // Fetch existing customer names with caching & limit 50
+    // 1. Fetch existing customer names with caching & limit 50
     const firestoreStart = Date.now();
+    const firestoreStartISO = new Date(firestoreStart).toISOString();
     const shopkeeperId = req.shopkeeper ? req.shopkeeper.shopkeeperId : null;
-    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId);
+    console.log(`[Voice Timing] [${firestoreStartISO}] [1/3] Fetching Firestore customer list for shopkeeperId: ${shopkeeperId || 'none'}...`);
+
+    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId, true);
     const firestoreFetchMs = Date.now() - firestoreStart;
+    const firestoreEndISO = new Date().toISOString();
+    console.log(`[Voice Timing] [${firestoreEndISO}] [1/3] Firestore customer fetch finished | Duration: ${firestoreFetchMs}ms | Customer count: ${existingCustomerNames.length}`);
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || process.env.NODE_ENV === 'test' || process.env.USE_MOCK_GEMINI === 'true') {
@@ -302,10 +318,16 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
     };
 
     const geminiStart = Date.now();
+    const geminiStartISO = new Date(geminiStart).toISOString();
+    console.log(`[Voice Timing] [${geminiStartISO}] [2/3] Calling Gemini API (with candidate fallback resolver)...`);
+
     const result = await generateWithFallback(genAI, async (model) => {
       return await model.generateContent([prompt, audioPart]);
     });
     const geminiCallMs = Date.now() - geminiStart;
+    const geminiEndISO = new Date().toISOString();
+    console.log(`[Voice Timing] [${geminiEndISO}] [2/3] Gemini API processing complete | Total Gemini Duration: ${geminiCallMs}ms`);
+
     const responseText = result.response.text();
 
     /**
@@ -381,7 +403,9 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
     }
 
     const totalMs = Date.now() - reqStart;
-    console.log(`[Voice Timing] total: ${totalMs}ms | firestoreFetch: ${firestoreFetchMs}ms | geminiCall: ${geminiCallMs}ms`);
+    const reqEndISO = new Date().toISOString();
+    const postProcessingMs = totalMs - firestoreFetchMs - geminiCallMs;
+    console.log(`[Voice Timing] [${reqEndISO}] [3/3] End-to-End Voice Processing Complete | Total Time: ${totalMs}ms (Firestore: ${firestoreFetchMs}ms, Gemini: ${geminiCallMs}ms, Post-processing: ${postProcessingMs}ms)`);
 
     return res.status(200).json(parsedResult);
   } catch (error) {
@@ -503,6 +527,10 @@ async function handleDailySummaryQuery(shopkeeperId) {
  * Classifies query vs transaction and generates natural spoken answer in Gujarati and English.
  */
 const processVoiceQuery = async (req, res) => {
+  const reqStart = Date.now();
+  const reqStartISO = new Date(reqStart).toISOString();
+  console.log(`[Voice Query Timing] [${reqStartISO}] POST /api/voice/query - Request received`);
+
   try {
     const { audioData, audioBase64, mimeType = 'audio/mp3', mockQueryType, mockCustomerName, isMockTransaction } = req.body;
     const base64Content = audioBase64 || audioData;
@@ -563,8 +591,15 @@ const processVoiceQuery = async (req, res) => {
       }
     }
 
+    const firestoreStart = Date.now();
+    const firestoreStartISO = new Date(firestoreStart).toISOString();
+    console.log(`[Voice Query Timing] [${firestoreStartISO}] [1/3] Fetching Firestore customer list for query context...`);
+
     const genAI = new GoogleGenerativeAI(apiKey);
-    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId);
+    const existingCustomerNames = await getCachedCustomerNames(shopkeeperId, true);
+    const firestoreFetchMs = Date.now() - firestoreStart;
+    console.log(`[Voice Query Timing] [${new Date().toISOString()}] [1/3] Firestore fetch finished | Duration: ${firestoreFetchMs}ms | Customer count: ${existingCustomerNames.length}`);
+
     const customerContextListStr = existingCustomerNames.length > 0 ? existingCustomerNames.join(', ') : 'None';
 
     const prompt = `
@@ -603,9 +638,16 @@ Return ONLY a valid JSON object without markdown formatting:
       },
     };
 
+    const geminiStart = Date.now();
+    const geminiStartISO = new Date(geminiStart).toISOString();
+    console.log(`[Voice Query Timing] [${geminiStartISO}] [2/3] Calling Gemini API for query classification...`);
+
     const result = await generateWithFallback(genAI, async (model) => {
       return await model.generateContent([prompt, audioPart]);
     });
+
+    const geminiCallMs = Date.now() - geminiStart;
+    console.log(`[Voice Query Timing] [${new Date().toISOString()}] [2/3] Gemini API call complete | Duration: ${geminiCallMs}ms`);
 
     const responseText = result.response.text();
 
@@ -641,6 +683,9 @@ Return ONLY a valid JSON object without markdown formatting:
     }
 
     const queryType = parsedResult.queryType || 'general';
+
+    const totalMs = Date.now() - reqStart;
+    console.log(`[Voice Query Timing] [${new Date().toISOString()}] [3/3] End-to-End Voice Query Completed | Total Time: ${totalMs}ms (Firestore: ${firestoreFetchMs}ms, Gemini: ${geminiCallMs}ms)`);
 
     if (queryType === 'customer_balance') {
       const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name);

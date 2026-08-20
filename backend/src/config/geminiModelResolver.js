@@ -180,23 +180,38 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {Object} options - Optional config { retryDelayMs }
  */
 async function generateWithFallback(genAI, generateContentFn, options = {}) {
+  const candidatesStart = Date.now();
   const candidates = await getCandidateModels();
+  const candidatesDuration = Date.now() - candidatesStart;
   const retryDelayMs = options.retryDelayMs !== undefined ? options.retryDelayMs : 500;
   let lastError = null;
+
+  console.log(`[Gemini Candidate Resolution] Duration: ${candidatesDuration}ms | Candidate models: [${candidates.join(', ')}]`);
 
   for (let i = 0; i < candidates.length; i++) {
     const modelName = candidates[i];
     const attemptStart = Date.now();
+    const attemptStartISO = new Date(attemptStart).toISOString();
+    console.log(`[Gemini Call Attempt ${i + 1}/${candidates.length}] Started at ${attemptStartISO} | Model: ${modelName}`);
+
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await generateContentFn(model);
       const attemptDuration = Date.now() - attemptStart;
-      console.log(`[Gemini] Successfully executed request using model: ${modelName} (attempt ${i + 1}, took ${attemptDuration}ms)`);
+      const attemptEndISO = new Date().toISOString();
+
+      if (i === 0) {
+        console.log(`[Gemini Call Attempt 1 Success] Finished at ${attemptEndISO} | Model: ${modelName} | Duration: ${attemptDuration}ms | First model succeeded, no fallback models attempted.`);
+      } else {
+        console.warn(`[Gemini Call Fallback Success] Finished at ${attemptEndISO} | Model: ${modelName} (Attempt ${i + 1}) | Duration: ${attemptDuration}ms | Note: ${i} previous model attempt(s) failed before this model succeeded.`);
+      }
+
       return result;
     } catch (error) {
       const attemptDuration = Date.now() - attemptStart;
+      const attemptEndISO = new Date().toISOString();
       lastError = error;
-      console.warn(`[Gemini] Model ${modelName} failed on attempt ${i + 1} after ${attemptDuration}ms (${error.message || error})`);
+      console.warn(`[Gemini Call Attempt ${i + 1} Failed] Finished at ${attemptEndISO} | Model: ${modelName} | Duration: ${attemptDuration}ms | Error: ${error.message || error}`);
 
       if (isNonTransientError(error)) {
         console.warn(`[Gemini] Non-transient error encountered on ${modelName}. Aborting model retries.`);
@@ -204,7 +219,7 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
       }
 
       if (i < candidates.length - 1) {
-        console.log(`[Gemini] Retrying request with next fallback model (${candidates[i + 1]})...`);
+        console.log(`[Gemini Retry] Retrying request with next fallback model candidate (${candidates[i + 1]})...`);
         if (retryDelayMs > 0) {
           await sleep(retryDelayMs);
         }
