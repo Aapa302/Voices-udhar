@@ -481,6 +481,234 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName) {
 }
 
 /**
+ * Helper to query customer history for query endpoint.
+ */
+async function handleCustomerHistoryQuery(shopkeeperId, customerName) {
+  let customerDisplayName = customerName || 'ગ્રાહક';
+  let totalBorrowed = 0;
+  let totalPaid = 0;
+  let currentBalance = 0;
+  let lastTransactionDateStr = null;
+  let customerFound = false;
+  let hasTransactions = false;
+
+  if (shopkeeperId) {
+    try {
+      const snapshot = await db.collection('customers')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      const customers = [];
+      snapshot.forEach((doc) => customers.push({ id: doc.id, ...doc.data() }));
+
+      if (customerName && customers.length > 0) {
+        const normTarget = normalizeGujaratiPhonetics(customerName);
+        let bestMatch = null;
+        let minDist = Infinity;
+
+        for (const cust of customers) {
+          if (!cust.name) continue;
+          const normName = normalizeGujaratiPhonetics(cust.name);
+          if (normTarget && normTarget === normName) {
+            bestMatch = cust;
+            minDist = 0;
+            break;
+          }
+          const dist = levenshteinDistance(normTarget, normName);
+          if (dist < minDist) {
+            minDist = dist;
+            bestMatch = cust;
+          }
+        }
+
+        if (bestMatch && (minDist <= 3 || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+          customerDisplayName = bestMatch.name;
+          currentBalance = Number(bestMatch.totalUdhaar) || 0;
+          customerFound = true;
+
+          const custId = bestMatch.customerId || bestMatch.id;
+          const txSnapshot = await db.collection('transactions')
+            .where('shopkeeperId', '==', shopkeeperId)
+            .where('customerId', '==', custId)
+            .get();
+
+          const transactions = [];
+          txSnapshot.forEach((doc) => transactions.push(doc.data()));
+
+          if (transactions.length > 0) {
+            hasTransactions = true;
+            // Sort by timestamp ascending
+            transactions.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+            for (const tx of transactions) {
+              const amt = Number(tx.amount) || 0;
+              if (tx.type === 'udhaar_add') {
+                totalBorrowed += amt;
+              } else if (tx.type === 'udhaar_paid') {
+                totalPaid += amt;
+              }
+            }
+
+            const latestTx = transactions[transactions.length - 1];
+            if (latestTx && latestTx.timestamp) {
+              const dateObj = new Date(latestTx.timestamp);
+              if (!isNaN(dateObj.getTime())) {
+                lastTransactionDateStr = dateObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching customer history for query:', err.message);
+    }
+  }
+
+  if (!customerFound) {
+    const answerText = customerName
+      ? `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`
+      : `ગ્રાહકનું નામ સ્પષ્ટ નથી.`;
+    const answerTextEnglish = customerName
+      ? `No customer named ${customerName} was found.`
+      : `Customer name was not specified.`;
+    return { answerText, answerTextEnglish };
+  }
+
+  let answerText = '';
+  let answerTextEnglish = '';
+
+  if (hasTransactions && lastTransactionDateStr) {
+    answerText = `${customerDisplayName}એ કુલ ₹${totalBorrowed} ઉધાર લીધું છે, ₹${totalPaid} પાછું આપ્યું છે. હાલમાં ₹${currentBalance} બાકી છે. છેલ્લો વ્યવહાર ${lastTransactionDateStr} ના રોજ થયો હતો.`;
+    answerTextEnglish = `${customerDisplayName} borrowed total ₹${totalBorrowed}, paid back ₹${totalPaid}. Current pending balance is ₹${currentBalance}. The last transaction was on ${lastTransactionDateStr}.`;
+  } else {
+    answerText = `${customerDisplayName}નો કોઈ વ્યવહાર મળ્યો નથી. હાલમાં ₹${currentBalance} બાકી છે.`;
+    answerTextEnglish = `${customerDisplayName} has no transaction history recorded. Current balance is ₹${currentBalance}.`;
+  }
+
+  return { customerName: customerDisplayName, totalBorrowed, totalPaid, currentBalance, lastTransactionDateStr, answerText, answerTextEnglish };
+}
+
+/**
+ * Helper to query inventory status for query endpoint.
+ */
+async function handleInventoryStatusQuery(shopkeeperId, itemName) {
+  let answerText = '';
+  let answerTextEnglish = '';
+
+  if (shopkeeperId) {
+    try {
+      const snapshot = await db.collection('inventory')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      const items = [];
+      snapshot.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+
+      if (itemName && items.length > 0) {
+        // Search specific item using fuzzy matching
+        const normTarget = normalizeGujaratiPhonetics(itemName);
+        let bestMatch = null;
+        let minDist = Infinity;
+
+        for (const item of items) {
+          if (!item.itemName) continue;
+          const normName = normalizeGujaratiPhonetics(item.itemName);
+          if (normTarget && normTarget === normName) {
+            bestMatch = item;
+            minDist = 0;
+            break;
+          }
+          const dist = levenshteinDistance(normTarget, normName);
+          if (dist < minDist) {
+            minDist = dist;
+            bestMatch = item;
+          }
+        }
+
+        if (bestMatch && (minDist <= 3 || normTarget === normalizeGujaratiPhonetics(bestMatch.itemName))) {
+          const qty = Number(bestMatch.quantity) || 0;
+          const unit = bestMatch.unit || 'piece';
+          answerText = `તમારી પાસે ${bestMatch.itemName} ${qty} ${unit} છે.`;
+          answerTextEnglish = `You have ${qty} ${unit} of ${bestMatch.itemName}.`;
+          return { answerText, answerTextEnglish };
+        } else {
+          answerText = `${itemName} સ્ટોકમાં મળ્યું નથી.`;
+          answerTextEnglish = `${itemName} was not found in inventory.`;
+          return { answerText, answerTextEnglish };
+        }
+      } else if (!itemName) {
+        // Summarize all inventory
+        const totalCount = items.length;
+        if (totalCount === 0) {
+          answerText = 'તમારા સ્ટોકમાં હાલમાં કોઈ વસ્તુ નથી.';
+          answerTextEnglish = 'There are currently no items in your inventory.';
+          return { answerText, answerTextEnglish };
+        }
+
+        const topItems = items.slice(0, 10).map((i) => `${i.itemName} ${i.quantity} ${i.unit || 'piece'}`).join(', ');
+        answerText = `તમારી પાસે કુલ ${totalCount} વસ્તુઓ છે: ${topItems}`;
+        answerTextEnglish = `You have a total of ${totalCount} items: ${topItems}`;
+        return { answerText, answerTextEnglish };
+      }
+    } catch (err) {
+      console.warn('Error fetching inventory status for query:', err.message);
+    }
+  }
+
+  answerText = itemName ? `${itemName} સ્ટોકમાં મળ્યું નથી.` : 'સ્ટોકની માહિતી ઉપલબ્ધ નથી.';
+  answerTextEnglish = itemName ? `${itemName} was not found in inventory.` : 'Inventory information is not available.';
+  return { answerText, answerTextEnglish };
+}
+
+/**
+ * Helper to query low-stock inventory items for query endpoint.
+ */
+async function handleInventoryLowStockQuery(shopkeeperId) {
+  let answerText = '';
+  let answerTextEnglish = '';
+
+  if (shopkeeperId) {
+    try {
+      const snapshot = await db.collection('inventory')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      const lowStockItems = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const qty = Number(data.quantity) || 0;
+        const threshold = Number(data.lowStockThreshold) || 5;
+        const isLow = data.isLowStock !== undefined ? Boolean(data.isLowStock) : qty <= threshold;
+        if (isLow) {
+          lowStockItems.push({
+            itemName: data.itemName || 'Item',
+            quantity: qty,
+            unit: data.unit || 'piece',
+          });
+        }
+      });
+
+      if (lowStockItems.length === 0) {
+        answerText = 'તમારી પાસે કોઈ વસ્તુ ઓછી નથી, બધો સ્ટોક પૂરતો છે.';
+        answerTextEnglish = 'No items are running low on stock.';
+        return { answerText, answerTextEnglish };
+      }
+
+      const itemsList = lowStockItems.map((i) => `${i.itemName} (${i.quantity} ${i.unit})`).join(', ');
+      answerText = `આ ${lowStockItems.length} વસ્તુઓનો સ્ટોક ઓછો છે: ${itemsList}`;
+      answerTextEnglish = `The following ${lowStockItems.length} items are running low on stock: ${itemsList}`;
+      return { answerText, answerTextEnglish };
+    } catch (err) {
+      console.warn('Error fetching low stock inventory for query:', err.message);
+    }
+  }
+
+  answerText = 'સ્ટોકની માહિતી ઉપલબ્ધ નથી.';
+  answerTextEnglish = 'Inventory information is not available.';
+  return { answerText, answerTextEnglish };
+}
+
+/**
  * Helper to query daily summary for query endpoint.
  */
 async function handleDailySummaryQuery(shopkeeperId) {
@@ -562,14 +790,48 @@ const processVoiceQuery = async (req, res) => {
         });
       }
 
-      const qType = mockQueryType || (decodedAudio.includes('summary') ? 'daily_summary' : decodedAudio.includes('general') ? 'general' : 'customer_balance');
+      let qType = mockQueryType;
+      if (!qType) {
+        if (decodedAudio.includes('history')) qType = 'customer_history';
+        else if (decodedAudio.includes('low_stock')) qType = 'inventory_low_stock';
+        else if (decodedAudio.includes('inventory')) qType = 'inventory_status';
+        else if (decodedAudio.includes('summary')) qType = 'daily_summary';
+        else if (decodedAudio.includes('general')) qType = 'general';
+        else qType = 'customer_balance';
+      }
 
       if (qType === 'customer_balance') {
-        const custName = mockCustomerName || 'Ramesh';
+        const custName = mockCustomerName || req.body.mockItemName || 'Ramesh';
         const result = await handleCustomerBalanceQuery(shopkeeperId, custName);
         return res.status(200).json({
           isQuery: true,
           queryType: 'customer_balance',
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+      } else if (qType === 'customer_history') {
+        const custName = mockCustomerName || 'Ramesh';
+        const result = await handleCustomerHistoryQuery(shopkeeperId, custName);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'customer_history',
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+      } else if (qType === 'inventory_status') {
+        const itemName = req.body.mockItemName || null;
+        const result = await handleInventoryStatusQuery(shopkeeperId, itemName);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'inventory_status',
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+      } else if (qType === 'inventory_low_stock') {
+        const result = await handleInventoryLowStockQuery(shopkeeperId);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'inventory_low_stock',
           answerText: result.answerText,
           answerTextEnglish: result.answerTextEnglish,
         });
@@ -585,8 +847,8 @@ const processVoiceQuery = async (req, res) => {
         return res.status(200).json({
           isQuery: true,
           queryType: 'general',
-          answerText: 'હું તમારી સહાય માટે તૈયાર છું. તમે ગ્રાહકના ઉધાર અથવા આજના વેચાણ વિશે પૂછી શકો છો.',
-          answerTextEnglish: 'I am ready to help you. You can ask about customer udhaar or today\'s sales.',
+          answerText: 'શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?',
+          answerTextEnglish: 'Are you asking about a specific customer or item?',
         });
       }
     }
@@ -607,24 +869,34 @@ You are an expert multilingual speech recognition and voice query assistant for 
 Analyze the provided audio recording. Note that the speaker may speak in Gujarati, Hindi, English, or any mix of these three languages. Auto-detect the language(s) used and transcribe accurately regardless of which language or mix is used.
 
 Task:
-1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, daily sales, or general questions) OR making a TRANSACTION instruction (recording sale/udhaar).
+1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, customer history, stock status, daily sales, etc.) OR making a TRANSACTION instruction (recording sale/udhaar).
    - "classification": "QUERY" or "TRANSACTION"
-2. If classification is "QUERY":
-   - "queryType": "customer_balance" (asking about a specific customer's udhaar/balance) | "daily_summary" (asking about today's sales, totals, or udhaar given) | "general" (any other question)
-   - "customer_name": Extracted customer name if queryType is "customer_balance" (string or null).
+2. If classification is "QUERY", recognize these query types:
+   - "customer_balance": asking how much a specific customer owes / pending balance.
+   - "customer_history": asking for detailed transaction history for a specific customer (what they bought/borrowed, when, payments, history).
+   - "daily_summary": asking about today's total sales, new udhaar, or collection totals.
+   - "inventory_status": asking what items are in stock, total stock quantity, or a specific item's quantity.
+   - "inventory_low_stock": asking which items are running low on stock or out of stock.
+   - "general": any other question or fallback.
+
+3. Entity Extraction:
+   - "customer_name": Extracted customer name if queryType is "customer_balance" or "customer_history" (string or null).
      - Existing Customer List for this shop: [ ${customerContextListStr} ]
      - Prefer matching spoken customer name to existing list if phonetically close.
-   - "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed".
-   - "answerText": If queryType is "general", provide a clear spoken response in Gujarati script. For customer_balance and daily_summary, this can be null.
+   - "item_name": Extracted product/item name if queryType is "inventory_status" and a specific item is mentioned (string or null).
+
+4. General Query Handling:
+   - If queryType is "general", provide a helpful best-effort answer in Gujarati script if context permits, or a clarifying question like "શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?"
+   - "answerText": Gujarati spoken text (required for "general", optional/null for data-driven query types).
    - "answerTextEnglish": English translation of answerText.
-3. If classification is "TRANSACTION":
-   - queryType, customer_name, answerText, answerTextEnglish should be null.
+   - "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed".
 
 Return ONLY a valid JSON object without markdown formatting:
 {
   "classification": "QUERY" | "TRANSACTION",
-  "queryType": "customer_balance" | "daily_summary" | "general" | null,
+  "queryType": "customer_balance" | "customer_history" | "daily_summary" | "inventory_status" | "inventory_low_stock" | "general" | null,
   "customer_name": "..." | null,
+  "item_name": "..." | null,
   "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed",
   "answerText": "..." | null,
   "answerTextEnglish": "..." | null
@@ -695,6 +967,30 @@ Return ONLY a valid JSON object without markdown formatting:
         answerText: balanceResult.answerText,
         answerTextEnglish: balanceResult.answerTextEnglish,
       });
+    } else if (queryType === 'customer_history') {
+      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name);
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'customer_history',
+        answerText: historyResult.answerText,
+        answerTextEnglish: historyResult.answerTextEnglish,
+      });
+    } else if (queryType === 'inventory_status') {
+      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name);
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'inventory_status',
+        answerText: inventoryResult.answerText,
+        answerTextEnglish: inventoryResult.answerTextEnglish,
+      });
+    } else if (queryType === 'inventory_low_stock') {
+      const lowStockResult = await handleInventoryLowStockQuery(shopkeeperId);
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'inventory_low_stock',
+        answerText: lowStockResult.answerText,
+        answerTextEnglish: lowStockResult.answerTextEnglish,
+      });
     } else if (queryType === 'daily_summary') {
       const summaryResult = await handleDailySummaryQuery(shopkeeperId);
       return res.status(200).json({
@@ -707,8 +1003,8 @@ Return ONLY a valid JSON object without markdown formatting:
       return res.status(200).json({
         isQuery: true,
         queryType: 'general',
-        answerText: parsedResult.answerText || 'હું તમારી સહાય માટે તૈયાર છું.',
-        answerTextEnglish: parsedResult.answerTextEnglish || 'I am ready to help you.',
+        answerText: parsedResult.answerText || 'શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?',
+        answerTextEnglish: parsedResult.answerTextEnglish || 'Are you asking about a specific customer or item?',
       });
     }
   } catch (error) {
