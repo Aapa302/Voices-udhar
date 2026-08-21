@@ -861,6 +861,108 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.body.answerTextEnglish).toContain('500');
       });
 
+      it('should format spoken answer tone according to normal, attention, and caution categories', async () => {
+        const now = Date.now();
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+        // Customer 1: Recent activity (2 days ago), small balance 300 -> normal tone
+        const c1Res = await request(app)
+          .post('/api/customers')
+          .set('x-api-key', apiKey)
+          .send({
+            shopkeeperId,
+            name: 'Normal Tone Cust',
+            phone: '9000000001',
+            totalUdhaar: 0,
+          });
+        await request(app)
+          .post('/api/transactions')
+          .set('x-api-key', apiKey)
+          .send({
+            customerId: c1Res.body.data.customerId,
+            type: 'udhaar_add',
+            amount: 300,
+            timestamp: new Date(now - 2 * MS_PER_DAY).toISOString(),
+          });
+
+        const resNormal = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('Normal query').toString('base64'),
+            mockQueryType: 'customer_balance',
+            mockCustomerName: 'Normal Tone Cust',
+          });
+
+        expect(resNormal.status).toBe(200);
+        expect(resNormal.body.answerText).toBe('Normal Tone Custનું ₹300 ઉધાર બાકી છે.');
+
+        // Customer 2: 20 days overdue -> attention tone
+        const c2Res = await request(app)
+          .post('/api/customers')
+          .set('x-api-key', apiKey)
+          .send({
+            shopkeeperId,
+            name: 'Attention Tone Cust',
+            phone: '9000000002',
+            totalUdhaar: 0,
+          });
+        await request(app)
+          .post('/api/transactions')
+          .set('x-api-key', apiKey)
+          .send({
+            customerId: c2Res.body.data.customerId,
+            type: 'udhaar_add',
+            amount: 500,
+            timestamp: new Date(now - 20 * MS_PER_DAY).toISOString(),
+          });
+
+        const resAttention = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('Attention query').toString('base64'),
+            mockQueryType: 'customer_balance',
+            mockCustomerName: 'Attention Tone Cust',
+          });
+
+        expect(resAttention.status).toBe(200);
+        expect(resAttention.body.answerText).toContain('છેલ્લા 20 દિવસથી કંઈ ચૂકવ્યું નથી');
+
+        // Customer 3: 35 days overdue & high balance -> caution tone
+        const c3Res = await request(app)
+          .post('/api/customers')
+          .set('x-api-key', apiKey)
+          .send({
+            shopkeeperId,
+            name: 'Caution Tone Cust',
+            phone: '9000000003',
+            totalUdhaar: 0,
+          });
+        await request(app)
+          .post('/api/transactions')
+          .set('x-api-key', apiKey)
+          .send({
+            customerId: c3Res.body.data.customerId,
+            type: 'udhaar_add',
+            amount: 2500,
+            timestamp: new Date(now - 35 * MS_PER_DAY).toISOString(),
+          });
+
+        const resCaution = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('Caution query').toString('base64'),
+            mockQueryType: 'customer_balance',
+            mockCustomerName: 'Caution Tone Cust',
+          });
+
+        expect(resCaution.status).toBe(200);
+        expect(resCaution.body.answerText).toContain('ધ્યાન આપો');
+        expect(resCaution.body.answerText).toContain('રિમાઇન્ડર મોકલવાનું વિચારો');
+      });
+
       it('should handle customer_history query and return full transaction history summary', async () => {
         // Create transactions for Ramesh
         const custRes = await request(app)

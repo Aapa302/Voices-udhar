@@ -538,6 +538,23 @@ function getDateRangeFromTimeframe(timeframe) {
 }
 
 /**
+ * Helper to determine sentiment/urgency tone category based on days overdue and total balance.
+ * Returns 'normal' | 'attention' | 'caution'
+ */
+function getCustomerToneCategory(daysOverdue, totalUdhaar) {
+  const days = Number(daysOverdue) || 0;
+  const udhaar = Number(totalUdhaar) || 0;
+
+  if (days >= 30 || udhaar >= 2000) {
+    return 'caution';
+  }
+  if (days >= 15 || udhaar >= 1000) {
+    return 'attention';
+  }
+  return 'normal';
+}
+
+/**
  * Helper to query customer balance for query endpoint.
  */
 async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId, subType = null) {
@@ -601,6 +618,7 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId, su
   let customerDisplayName = customerName || 'ગ્રાહક';
   let balance = 0;
   let customerFound = false;
+  let matchedCustomer = null;
 
   if (customerName && customers.length > 0) {
     const normTarget = normalizeGujaratiPhonetics(customerName);
@@ -626,22 +644,68 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId, su
       customerDisplayName = bestMatch.name;
       balance = Number(bestMatch.totalUdhaar) || 0;
       customerFound = true;
+      matchedCustomer = bestMatch;
     }
   }
 
-  const answerText = customerFound
-    ? `${customerDisplayName}નું ₹${balance} ઉધાર બાકી છે.`
-    : customerName
+  if (!customerFound) {
+    const answerText = customerName
       ? `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`
       : `ગ્રાહકનું નામ સ્પષ્ટ નથી.`;
-
-  const answerTextEnglish = customerFound
-    ? `${customerDisplayName}'s pending balance is ₹${balance}.`
-    : customerName
+    const answerTextEnglish = customerName
       ? `No customer named ${customerName} was found.`
       : `Customer name was not specified.`;
+    return { customerName: customerDisplayName, balance, answerText, answerTextEnglish };
+  }
 
-  return { customerName: customerDisplayName, balance, answerText, answerTextEnglish };
+  // Determine days since last activity for tone calculation
+  let daysSinceLastActivity = 0;
+  if (matchedCustomer && shopkeeperId) {
+    try {
+      const custId = matchedCustomer.customerId || matchedCustomer.id;
+      const txSnapshot = await db.collection('transactions')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      let latestTxTime = 0;
+      txSnapshot.forEach((doc) => {
+        const tx = doc.data();
+        if (tx.customerId === custId && tx.timestamp) {
+          const t = new Date(tx.timestamp).getTime();
+          if (!isNaN(t) && t > latestTxTime) latestTxTime = t;
+        }
+      });
+
+      if (!latestTxTime) {
+        const fallBackIso = matchedCustomer.updatedAt || matchedCustomer.createdAt;
+        latestTxTime = fallBackIso ? new Date(fallBackIso).getTime() : Date.now();
+      }
+
+      if (latestTxTime) {
+        const diffMs = Math.max(0, Date.now() - latestTxTime);
+        daysSinceLastActivity = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  const tone = getCustomerToneCategory(daysSinceLastActivity, balance);
+
+  let answerText = `${customerDisplayName}નું ₹${balance} ઉધાર બાકી છે.`;
+  let answerTextEnglish = `${customerDisplayName}'s pending balance is ₹${balance}.`;
+
+  if (balance > 0) {
+    if (tone === 'caution') {
+      answerText = `ધ્યાન આપો: ${customerDisplayName}નું ₹${balance} ઉધાર બાકી છે અને ${daysSinceLastActivity > 0 ? `${daysSinceLastActivity} દિવસથી કોઈ ચુકવણી નથી થઈ` : 'રકમ વધુ છે'}. રિમાઇન્ડર મોકલવાનું વિચારો.`;
+      answerTextEnglish = `Attention: ${customerDisplayName}'s balance is ₹${balance} and no payment in ${daysSinceLastActivity} days. Consider sending a reminder.`;
+    } else if (tone === 'attention') {
+      answerText = `${customerDisplayName}નું ₹${balance} ઉધાર બાકી છે. છેલ્લા ${daysSinceLastActivity} દિવસથી કંઈ ચૂકવ્યું નથી, થોડું ધ્યાન રાખજો.`;
+      answerTextEnglish = `${customerDisplayName}'s pending balance is ₹${balance}. Nothing paid in the last ${daysSinceLastActivity} days, please keep an eye.`;
+    }
+  }
+
+  return { customerName: customerDisplayName, balance, tone, daysSinceLastActivity, answerText, answerTextEnglish };
 }
 
 /**
@@ -1363,9 +1427,12 @@ async function handleBusinessInsightsQuery(shopkeeperId, shopId, subType = null)
         };
       }
 
+      const urgencyPrefixGu = (totalUdhaar >= 2000 || lowStockCount >= 3) ? 'ખાસ ધ્યાન આપો: ' : 'સુઝાવો: ';
+      const urgencyPrefixEn = (totalUdhaar >= 2000 || lowStockCount >= 3) ? 'Urgent Attention Required: ' : 'Suggestions: ';
+
       return {
-        answerText: `સુઝાવો: ${suggestions.join('; ')}.`,
-        answerTextEnglish: `Suggestions: ${suggestionsEn.join('; ')}.`,
+        answerText: `${urgencyPrefixGu}${suggestions.join('; ')}.`,
+        answerTextEnglish: `${urgencyPrefixEn}${suggestionsEn.join('; ')}.`,
       };
     }
 

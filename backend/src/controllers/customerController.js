@@ -418,7 +418,14 @@ const getCustomerReminders = async (req, res) => {
       const daysSinceLastTransaction = Math.floor(diffMs / MS_PER_DAY);
 
       if (daysSinceLastTransaction >= daysThreshold) {
-        const suggestedMessage = `નમસ્તે ${cust.name}, તમારું ₹${cust.totalUdhaar} બાકી છે. કૃપા કરી જલ્દી ચૂકવો. આભાર! 🙏`;
+        let suggestedMessage = `નમસ્તે ${cust.name}, તમારું ₹${cust.totalUdhaar} બાકી છે. કૃપા કરી જલ્દી ચૂકવો. આભાર! 🙏`;
+
+        if (daysSinceLastTransaction >= 45 || cust.totalUdhaar >= 2000) {
+          suggestedMessage = `નમસ્તે ${cust.name}, આપનું ₹${cust.totalUdhaar}નું ઉધાર છેલ્લા ${daysSinceLastTransaction} દિવસથી બાકી છે. કૃપા કરીને આ સપ્તાહે ચૂકવણી પૂર્ણ કરવા નમ્ર વિનંતી. આભાર! 🙏`;
+        } else if (daysSinceLastTransaction >= 30) {
+          suggestedMessage = `નમસ્તે ${cust.name}, આપનું ₹${cust.totalUdhaar} ઉધાર બાકી છે (${daysSinceLastTransaction} દિવસ થયા). અનુકૂળતા મુજબ જલ્દી જમા કરાવશો. આભાર! 🙏`;
+        }
+
         remindersNeeded.push({
           customerId: cust.customerId,
           name: cust.name,
@@ -629,7 +636,14 @@ const getRemindersToday = async (req, res) => {
       };
 
       if (isDueForReminder(customerWithDays)) {
-        const suggestedMessage = `નમસ્તે ${cust.name}, તમારું ₹${cust.totalUdhaar} બાકી છે. કૃપા કરી જલ્દી ચૂકવો. આભાર! 🙏`;
+        let suggestedMessage = `નમસ્તે ${cust.name}, તમારું ₹${cust.totalUdhaar} બાકી છે. કૃપા કરી જલ્દી ચૂકવો. આભાર! 🙏`;
+
+        if (daysSinceLastTransaction >= 45 || cust.totalUdhaar >= 2000) {
+          suggestedMessage = `નમસ્તે ${cust.name}, આપનું ₹${cust.totalUdhaar}નું ઉધાર છેલ્લા ${daysSinceLastTransaction} દિવસથી બાકી છે. કૃપા કરીને આ સપ્તાહે ચૂકવણી પૂર્ણ કરવા નમ્ર વિનંતી. આભાર! 🙏`;
+        } else if (daysSinceLastTransaction >= 30) {
+          suggestedMessage = `નમસ્તે ${cust.name}, આપનું ₹${cust.totalUdhaar} ઉધાર બાકી છે (${daysSinceLastTransaction} દિવસ થયા). અનુકૂળતા મુજબ જલ્દી જમા કરાવશો. આભાર! 🙏`;
+        }
+
         remindersToday.push({
           customerId: cust.customerId,
           name: cust.name,
