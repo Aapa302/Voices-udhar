@@ -67,7 +67,14 @@ function normalizeGujaratiPhonetics(str) {
 }
 
 /**
- * Finds a suggested customer match from an array of existing customer names using generic phonetic + edit distance similarity.
+ * Finds a suggested customer match from an array of existing customer names using strict phonetic + edit distance similarity.
+ * Matching rules:
+ * 1. Exact match (case insensitive): return null (no suggestion needed as it is already identical).
+ * 2. Exact phonetic match (after removing honorifics/consonant pairs): return existingName.
+ * 3. Strict edit distance threshold:
+ *    - For normalized/raw strings, edit distance must be <= 1 character for short names (len <= 5),
+ *      or <= 2 characters for long names (len > 5) provided similarity is at least 85% (dist / maxLen <= 0.15).
+ *    - Clearly different names (such as "Bhagubhai" vs "Valkubhai") will NOT match.
  */
 function findSuggestedCustomerName(extractedName, existingCustomerNames) {
   if (!extractedName || !Array.isArray(existingCustomerNames) || existingCustomerNames.length === 0) {
@@ -75,6 +82,7 @@ function findSuggestedCustomerName(extractedName, existingCustomerNames) {
   }
 
   const cleanExtracted = extractedName.trim();
+  const rawLowerExtracted = cleanExtracted.toLowerCase();
   const normExtracted = normalizeGujaratiPhonetics(cleanExtracted);
 
   let bestMatch = null;
@@ -83,9 +91,10 @@ function findSuggestedCustomerName(extractedName, existingCustomerNames) {
   for (const existingName of existingCustomerNames) {
     if (!existingName) continue;
     const cleanExisting = existingName.trim();
+    const rawLowerExisting = cleanExisting.toLowerCase();
 
     // Exact match
-    if (cleanExtracted.toLowerCase() === cleanExisting.toLowerCase()) {
+    if (rawLowerExtracted === rawLowerExisting) {
       return null; // Already an exact match
     }
 
@@ -96,14 +105,21 @@ function findSuggestedCustomerName(extractedName, existingCustomerNames) {
       return cleanExisting;
     }
 
-    // Levenshtein distance on normalized strings
-    const dist = levenshteinDistance(normExtracted, normExisting);
-    const maxLen = Math.max(normExtracted.length, normExisting.length);
+    // Compare both raw and phonetically normalized strings
+    const rawDist = levenshteinDistance(rawLowerExtracted, rawLowerExisting);
+    const rawMaxLen = Math.max(rawLowerExtracted.length, rawLowerExisting.length);
 
-    // Consider close match if edit distance is <= 2 (or <= 30% of max length)
-    if (dist <= 2 || (maxLen >= 5 && dist / maxLen <= 0.3)) {
-      if (dist < minDistance) {
-        minDistance = dist;
+    const normDist = levenshteinDistance(normExtracted, normExisting);
+    const normMaxLen = Math.max(normExtracted.length, normExisting.length);
+
+    // Check strict threshold on raw or normalized distance
+    const isValidRawMatch = rawDist <= 1 || (rawMaxLen >= 6 && rawDist <= 2 && (rawDist / rawMaxLen) <= 0.15);
+    const isValidNormMatch = normMaxLen >= 2 && (normDist <= 1 || (normMaxLen >= 6 && normDist <= 2 && (normDist / normMaxLen) <= 0.15));
+
+    if (isValidRawMatch || isValidNormMatch) {
+      const currentDist = Math.min(rawDist, normDist);
+      if (currentDist < minDistance) {
+        minDistance = currentDist;
         bestMatch = cleanExisting;
       }
     }
@@ -279,10 +295,10 @@ CRITICAL INSTRUCTIONS:
 1. MULTI-LANGUAGE AUDIO & NUMBER PARSING:
    - Understand numbers and amounts accurately whether spoken in Gujarati (e.g., "પાંચસો"), Hindi (e.g., "paanch sau", "पांच सौ"), or English (e.g., "five hundred") — all should parse correctly to 500.
    - Extract customer names accurately even if spoken with English pronunciation, Hindi accent, or regional spelling influence.
-2. CONSONANT SOUND VARIATIONS:
-   - Note that in spoken speech, similar-sounding consonant pairs are frequently confused (e.g. બ/ભ, ક/ખ, ગ/ઘ, ડ/ઢ, પ/ફ, ત/થ, ચ/છ, ટ/ઠ, જ/ઝ).
+2. CUSTOMER NAME EXTRACTION:
+   - Transcribe the customer name EXACTLY as spoken in the audio recording. Do NOT alter, force-fit, or replace a newly spoken customer name with any name from the existing customer list unless the speaker actually spoke that exact name.
    - Existing Customer List for this shop: [ ${customerContextListStr} ]
-   - If the transcribed spoken name is phonetically close to any name in this existing customer list, prefer matching to the existing name from the list.
+   - Use the existing customer list ONLY as spelling context if the exact same name was spoken. If a genuinely different name is spoken (e.g., "Bhagubhai" or "ભાગુભાઈ"), transcribe it strictly as spoken. Do NOT substitute it with a similar existing name (e.g. "Valkubhai" or "વાળકુભાઈ").
 
 Task:
 1. Transcribe the spoken audio accurately in Gujarati script or relevant mixed text (transcription_gujarati).
@@ -471,7 +487,7 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId) {
           }
         }
 
-        if (bestMatch && (minDist <= 3 || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+        if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
           customerDisplayName = bestMatch.name;
           balance = Number(bestMatch.totalUdhaar) || 0;
           customerFound = true;
@@ -544,7 +560,7 @@ async function handleCustomerHistoryQuery(shopkeeperId, customerName, shopId) {
           }
         }
 
-        if (bestMatch && (minDist <= 3 || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+        if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
           customerDisplayName = bestMatch.name;
           currentBalance = Number(bestMatch.totalUdhaar) || 0;
           customerFound = true;
@@ -918,9 +934,8 @@ Task:
    - "general": any other question or fallback.
 
 3. Entity Extraction:
-   - "customer_name": Extracted customer name if queryType is "customer_balance" or "customer_history" (string or null).
+   - "customer_name": Extracted customer name if queryType is "customer_balance" or "customer_history" (string or null). Transcribe EXACTLY as spoken without forcing to an existing customer name unless phonetically identical.
      - Existing Customer List for this shop: [ ${customerContextListStr} ]
-     - Prefer matching spoken customer name to existing list if phonetically close.
    - "item_name": Extracted product/item name if queryType is "inventory_status" and a specific item is mentioned (string or null).
 
 4. General Query Handling:
