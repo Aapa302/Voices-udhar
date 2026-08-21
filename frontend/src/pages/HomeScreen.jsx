@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight, WifiOff, CloudOff, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { processVoiceAudio } from '../api/voice';
+import { processVoiceAudio, processVoiceQuery } from '../api/voice';
 import { getCustomers, createCustomer } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
@@ -20,6 +20,7 @@ const SCREEN_STATE = {
   SAVING: 'SAVING',
   SUCCESS: 'SUCCESS',
   PERMISSION_DENIED: 'PERMISSION_DENIED',
+  QUERY_RESPONSE: 'QUERY_RESPONSE',
   OFFLINE_RECORDED: 'OFFLINE_RECORDED',
 };
 
@@ -50,6 +51,11 @@ export default function HomeScreen() {
   const [parsedData, setParsedData] = useState(null);
   const [generatedBill, setGeneratedBill] = useState(null);
   const [showBillModal, setShowBillModal] = useState(false);
+
+  // Voice Query State
+  const [isQueryMode, setIsQueryMode] = useState(false);
+  const [queryResult, setQueryResult] = useState(null);
+  const [isSpeakingQuery, setIsSpeakingQuery] = useState(false);
 
   // Network online/offline state & offline queue state
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
@@ -119,6 +125,18 @@ export default function HomeScreen() {
     setErrorMessage('');
 
     try {
+      if (item.isQueryMode) {
+        const queryRes = await processVoiceQuery(item.audioBase64, item.mimeType || 'audio/webm');
+        if (!queryRes || queryRes.isQuery === false) {
+          setErrorMessage(queryRes?.message || 'આ ટ્રાન્ઝેક્શન છે. / This is a transaction.');
+          setScreenState(SCREEN_STATE.ERROR);
+          return;
+        }
+        setQueryResult(queryRes);
+        setScreenState(SCREEN_STATE.QUERY_RESPONSE);
+        return;
+      }
+
       const result = await processVoiceAudio(item.audioBase64, item.mimeType || 'audio/webm');
 
       if (!result || result.intent === 'unclear' || (result.confidence === 'low' && !result.customer_name && !result.amount)) {
@@ -224,6 +242,66 @@ export default function HomeScreen() {
       window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
     };
   }, []);
+
+  // SpeechSynthesis TTS helper logic for query mode
+  const speakText = async (text) => {
+    if (!('speechSynthesis' in window) || !text) return;
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const getVoices = () => new Promise((resolve) => {
+      let voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) return resolve(voices);
+      const handleVoices = () => {
+        voices = window.speechSynthesis.getVoices();
+        window.speechSynthesis.removeEventListener('voiceschanged', handleVoices);
+        resolve(voices || []);
+      };
+      window.speechSynthesis.addEventListener('voiceschanged', handleVoices);
+      setTimeout(() => resolve(window.speechSynthesis.getVoices() || []), 800);
+    });
+
+    const voices = await getVoices();
+    const guVoice = voices.find((v) => v.lang && v.lang.toLowerCase().includes('gu'));
+    const hiVoice = voices.find((v) => v.lang && v.lang.toLowerCase().includes('hi'));
+
+    if (guVoice) {
+      utterance.voice = guVoice;
+      utterance.lang = 'gu-IN';
+    } else if (hiVoice) {
+      utterance.voice = hiVoice;
+      utterance.lang = 'hi-IN';
+    } else {
+      utterance.lang = 'hi-IN';
+    }
+
+    utterance.rate = 0.9;
+    utterance.onend = () => setIsSpeakingQuery(false);
+    utterance.onerror = () => setIsSpeakingQuery(false);
+
+    setIsSpeakingQuery(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    if (screenState === SCREEN_STATE.QUERY_RESPONSE && queryResult?.answerText) {
+      speakText(queryResult.answerText);
+    }
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [screenState, queryResult]);
+
+  const toggleQuerySpeech = () => {
+    if (isSpeakingQuery) {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      setIsSpeakingQuery(false);
+    } else if (queryResult?.answerText) {
+      speakText(queryResult.answerText);
+    }
+  };
 
   // Form state for Editing
   const [editCustomerName, setEditCustomerName] = useState('');
@@ -374,10 +452,24 @@ export default function HomeScreen() {
               timestamp: new Date().toISOString(),
               shopId,
               shopkeeperId,
+              isQueryMode,
             });
 
             await updateOfflineCount();
             setScreenState(SCREEN_STATE.OFFLINE_RECORDED);
+            return;
+          }
+
+          if (isQueryMode) {
+            const queryRes = await processVoiceQuery(base64Audio, mimeType);
+            if (!queryRes || queryRes.isQuery === false) {
+              setErrorMessage(queryRes?.message || 'આ ટ્રાન્ઝેક્શન છે. / This is a transaction.');
+              setScreenState(SCREEN_STATE.ERROR);
+              return;
+            }
+
+            setQueryResult(queryRes);
+            setScreenState(SCREEN_STATE.QUERY_RESPONSE);
             return;
           }
 
@@ -643,6 +735,10 @@ export default function HomeScreen() {
   };
 
   const resetToIdle = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeakingQuery(false);
     setIsSyncing(false);
     setSyncQueue([]);
     setCurrentSyncIndex(0);
@@ -650,6 +746,7 @@ export default function HomeScreen() {
     setScreenState(SCREEN_STATE.IDLE);
     setErrorMessage('');
     setParsedData(null);
+    setQueryResult(null);
     setGeneratedBill(null);
     setShowBillModal(false);
     setStockSuccessNote('');
@@ -854,6 +951,36 @@ export default function HomeScreen() {
             </button>
           )}
         </motion.div>
+      )}
+
+      {/* ASK A QUESTION TOGGLE BUTTON ABOVE MIC */}
+      {(screenState === SCREEN_STATE.IDLE || screenState === SCREEN_STATE.RECORDING) && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
+          <button
+            type="button"
+            onClick={() => setIsQueryMode(!isQueryMode)}
+            disabled={screenState === SCREEN_STATE.RECORDING}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.6rem 1.2rem',
+              borderRadius: '24px',
+              border: isQueryMode ? '1px solid rgba(240, 198, 116, 0.6)' : '1px solid rgba(255, 255, 255, 0.15)',
+              backgroundColor: isQueryMode ? 'rgba(240, 198, 116, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+              color: isQueryMode ? '#F0C674' : '#94A3B8',
+              fontSize: '0.95rem',
+              fontWeight: '700',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              backdropFilter: 'blur(8px)',
+              boxShadow: isQueryMode ? '0 4px 15px rgba(240, 198, 116, 0.2)' : 'none'
+            }}
+          >
+            <HelpCircle size={18} color={isQueryMode ? '#F0C674' : '#94A3B8'} />
+            <span>{isQueryMode ? 'પ્રશ્ન મોડ (Active) / Question Mode' : 'પ્રશ્ન પૂછો / Ask a Question'}</span>
+          </button>
+        </div>
       )}
 
       {/* MAIN MIC HERO VIEW (IDLE or RECORDING) */}
@@ -1379,6 +1506,77 @@ export default function HomeScreen() {
           <p style={{ color: '#94A3B8', fontSize: '1rem', textAlign: 'center', fontWeight: '500' }}>
             {parsedData?.isStock ? 'સ્ટોક સફળતાપૂર્વક અપડેટ થયો છે.' : 'ટ્રાન્ઝેક્શન સફળતાપૂર્વક ઉમેરાઈ ગયું છે.'}
           </p>
+        </motion.div>
+      )}
+
+      {/* QUERY RESPONSE CARD STATE */}
+      {screenState === SCREEN_STATE.QUERY_RESPONSE && queryResult && (
+        <motion.div
+          initial={{ opacity: 0, y: 25 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+          className="confirmation-card"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#F0C674', fontWeight: '800', fontSize: '1.15rem' }}>
+            <MessageSquare size={24} />
+            <span>જવાબ / Answer</span>
+          </div>
+
+          <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', padding: '1.25rem', border: '1px solid rgba(240, 198, 116, 0.25)', marginBottom: '1.25rem', textAlign: 'center', maxHeight: '300px', overflowY: 'auto' }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#F8FAFC', marginBottom: '0.5rem', lineHeight: '1.4', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
+              {queryResult.answerText}
+            </div>
+            {queryResult.answerTextEnglish && (
+              <div style={{ fontSize: '0.95rem', color: '#94A3B8', fontWeight: '500', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
+                {queryResult.answerTextEnglish}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={toggleQuerySpeech}
+              style={{
+                width: '100%',
+                padding: '0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid rgba(240, 198, 116, 0.3)',
+                background: isSpeakingQuery
+                  ? 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)'
+                  : 'linear-gradient(135deg, #7C3AED 0%, #C026D3 100%)',
+                color: '#ffffff',
+                fontSize: '1.1rem',
+                fontWeight: '700',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                cursor: 'pointer',
+              }}
+            >
+              {isSpeakingQuery ? (
+                <>
+                  <VolumeX size={22} />
+                  <span>અવાજ બંધ કરો / Stop Voice</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 size={22} color="#F0C674" />
+                  <span>ફરી સાંભળો / Read Answer</span>
+                </>
+              )}
+            </motion.button>
+
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              className="btn-primary"
+              onClick={resetToIdle}
+            >
+              <RotateCcw size={20} />
+              <span>પાછા બોલો / Ask Again</span>
+            </motion.button>
+          </div>
         </motion.div>
       )}
     </div>
