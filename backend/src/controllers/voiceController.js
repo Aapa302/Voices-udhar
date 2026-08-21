@@ -445,13 +445,67 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
 };
 
 /**
+ * Helper to calculate IST Date range boundaries for timeframes.
+ */
+function getDateRangeFromTimeframe(timeframe) {
+  const now = new Date();
+  // Get current date string in IST YYYY-MM-DD
+  const istDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+  const [year, month, day] = istDateStr.split('-').map(Number);
+
+  const startOfTodayIST = new Date(`${istDateStr}T00:00:00.000+05:30`);
+  const endOfTodayIST = new Date(startOfTodayIST.getTime() + 24 * 60 * 60 * 1000);
+
+  if (timeframe === 'today') {
+    return { startDate: startOfTodayIST, endDate: endOfTodayIST, labelGu: 'આજે', labelEn: 'today' };
+  }
+
+  if (timeframe === 'yesterday') {
+    const startOfYesterdayIST = new Date(startOfTodayIST.getTime() - 24 * 60 * 60 * 1000);
+    return { startDate: startOfYesterdayIST, endDate: startOfTodayIST, labelGu: 'ગઈકાલે', labelEn: 'yesterday' };
+  }
+
+  if (timeframe === 'this_week') {
+    const startOfWeekIST = new Date(startOfTodayIST.getTime() - 6 * 24 * 60 * 60 * 1000);
+    return { startDate: startOfWeekIST, endDate: endOfTodayIST, labelGu: 'આ અઠવાડિયે', labelEn: 'this week' };
+  }
+
+  if (timeframe === 'last_week') {
+    const endOfLastWeekIST = new Date(startOfTodayIST.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const startOfLastWeekIST = new Date(endOfLastWeekIST.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { startDate: startOfLastWeekIST, endDate: endOfLastWeekIST, labelGu: 'પાછલા અઠવાડિયે', labelEn: 'last week' };
+  }
+
+  if (timeframe === 'this_month') {
+    const monthStr = month < 10 ? `0${month}` : `${month}`;
+    const startOfMonthIST = new Date(`${year}-${monthStr}-01T00:00:00.000+05:30`);
+    return { startDate: startOfMonthIST, endDate: endOfTodayIST, labelGu: 'આ મહિને', labelEn: 'this month' };
+  }
+
+  if (timeframe === 'last_month') {
+    let lastMonth = month - 1;
+    let lastMonthYear = year;
+    if (lastMonth === 0) {
+      lastMonth = 12;
+      lastMonthYear = year - 1;
+    }
+    const monthStr = month < 10 ? `0${month}` : `${month}`;
+    const lastMonthStr = lastMonth < 10 ? `0${lastMonth}` : `${lastMonth}`;
+
+    const startOfLastMonthIST = new Date(`${lastMonthYear}-${lastMonthStr}-01T00:00:00.000+05:30`);
+    const startOfThisMonthIST = new Date(`${year}-${monthStr}-01T00:00:00.000+05:30`);
+    return { startDate: startOfLastMonthIST, endDate: startOfThisMonthIST, labelGu: 'ગયા મહિને', labelEn: 'last month' };
+  }
+
+  return { startDate: null, endDate: null, labelGu: 'કુલ', labelEn: 'all time' };
+}
+
+/**
  * Helper to query customer balance for query endpoint.
  */
-async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId) {
-  let customerDisplayName = customerName || 'ગ્રાહક';
-  let balance = 0;
-  let customerFound = false;
+async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId, subType = null) {
   const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
+  const customers = [];
 
   if (shopkeeperId) {
     try {
@@ -459,53 +513,93 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId) {
         .where('shopkeeperId', '==', shopkeeperId)
         .get();
 
-      const customers = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
         if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
           customers.push(data);
         }
       });
-
-      if (customerName && customers.length > 0) {
-        const normTarget = normalizeGujaratiPhonetics(customerName);
-        let bestMatch = null;
-        let minDist = Infinity;
-
-        for (const cust of customers) {
-          if (!cust.name) continue;
-          const normName = normalizeGujaratiPhonetics(cust.name);
-          if (normTarget && normTarget === normName) {
-            bestMatch = cust;
-            minDist = 0;
-            break;
-          }
-          const dist = levenshteinDistance(normTarget, normName);
-          if (dist < minDist) {
-            minDist = dist;
-            bestMatch = cust;
-          }
-        }
-
-        if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
-          customerDisplayName = bestMatch.name;
-          balance = Number(bestMatch.totalUdhaar) || 0;
-          customerFound = true;
-        }
-      }
     } catch (err) {
       console.warn('Error fetching customer balance for query:', err.message);
     }
   }
 
+  // Handle "top_debtor": who owes the most
+  if (subType === 'top_debtor') {
+    const debtors = customers.filter((c) => (Number(c.totalUdhaar) || 0) > 0);
+    if (debtors.length === 0) {
+      return {
+        answerText: 'હાલમાં કોઈ ગ્રાહકનું ઉધાર બાકી નથી.',
+        answerTextEnglish: 'No customers currently have pending udhaar.',
+      };
+    }
+    debtors.sort((a, b) => (Number(b.totalUdhaar) || 0) - (Number(a.totalUdhaar) || 0));
+    const top = debtors[0];
+    const topBal = Number(top.totalUdhaar) || 0;
+    return {
+      answerText: `સૌથી વધુ ઉધાર ${top.name}નું છે, ₹${topBal} બાકી છે.`,
+      answerTextEnglish: `${top.name} owes the most with a pending balance of ₹${topBal}.`,
+    };
+  }
+
+  // Handle "debtor_count": how many customers have pending udhaar
+  if (subType === 'debtor_count') {
+    const debtors = customers.filter((c) => (Number(c.totalUdhaar) || 0) > 0);
+    return {
+      answerText: `હાલમાં કુલ ${debtors.length} ગ્રાહકોનું ઉધાર બાકી છે.`,
+      answerTextEnglish: `Currently ${debtors.length} customers have pending udhaar.`,
+    };
+  }
+
+  // Handle "total_outstanding": total pending udhaar across all customers
+  if (subType === 'total_outstanding') {
+    const totalOut = customers.reduce((sum, c) => sum + (Number(c.totalUdhaar) || 0), 0);
+    return {
+      answerText: `દુકાનનું કુલ ₹${totalOut} ઉધાર તમામ ગ્રાહકો પાસે બાકી છે.`,
+      answerTextEnglish: `Total outstanding balance across all customers is ₹${totalOut}.`,
+    };
+  }
+
+  // Handle single customer balance query
+  let customerDisplayName = customerName || 'ગ્રાહક';
+  let balance = 0;
+  let customerFound = false;
+
+  if (customerName && customers.length > 0) {
+    const normTarget = normalizeGujaratiPhonetics(customerName);
+    let bestMatch = null;
+    let minDist = Infinity;
+
+    for (const cust of customers) {
+      if (!cust.name) continue;
+      const normName = normalizeGujaratiPhonetics(cust.name);
+      if (normTarget && normTarget === normName) {
+        bestMatch = cust;
+        minDist = 0;
+        break;
+      }
+      const dist = levenshteinDistance(normTarget, normName);
+      if (dist < minDist) {
+        minDist = dist;
+        bestMatch = cust;
+      }
+    }
+
+    if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+      customerDisplayName = bestMatch.name;
+      balance = Number(bestMatch.totalUdhaar) || 0;
+      customerFound = true;
+    }
+  }
+
   const answerText = customerFound
-    ? `${customerDisplayName}નું ${balance} રૂપિયા ઉધાર બાકી છે.`
+    ? `${customerDisplayName}નું ₹${balance} ઉધાર બાકી છે.`
     : customerName
       ? `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`
       : `ગ્રાહકનું નામ સ્પષ્ટ નથી.`;
 
   const answerTextEnglish = customerFound
-    ? `${customerDisplayName}'s pending balance is ${balance} rupees.`
+    ? `${customerDisplayName}'s pending balance is ₹${balance}.`
     : customerName
       ? `No customer named ${customerName} was found.`
       : `Customer name was not specified.`;
@@ -514,87 +608,126 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId) {
 }
 
 /**
- * Helper to query customer history for query endpoint.
+ * Helper to query customer history or general transaction activity for query endpoint.
  */
-async function handleCustomerHistoryQuery(shopkeeperId, customerName, shopId) {
-  let customerDisplayName = customerName || 'ગ્રાહક';
+async function handleCustomerHistoryQuery(shopkeeperId, customerName, shopId, timeframe = null, actionType = null) {
+  let customerDisplayName = customerName || null;
   let totalBorrowed = 0;
   let totalPaid = 0;
+  let totalSales = 0;
   let currentBalance = 0;
   let lastTransactionDateStr = null;
   let customerFound = false;
   let hasTransactions = false;
   const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
+  const dateRange = getDateRangeFromTimeframe(timeframe);
+
   if (shopkeeperId) {
     try {
-      const snapshot = await db.collection('customers')
-        .where('shopkeeperId', '==', shopkeeperId)
-        .get();
+      if (customerName) {
+        const snapshot = await db.collection('customers')
+          .where('shopkeeperId', '==', shopkeeperId)
+          .get();
 
-      const customers = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
-          customers.push({ id: doc.id, ...data });
-        }
-      });
-
-      if (customerName && customers.length > 0) {
-        const normTarget = normalizeGujaratiPhonetics(customerName);
-        let bestMatch = null;
-        let minDist = Infinity;
-
-        for (const cust of customers) {
-          if (!cust.name) continue;
-          const normName = normalizeGujaratiPhonetics(cust.name);
-          if (normTarget && normTarget === normName) {
-            bestMatch = cust;
-            minDist = 0;
-            break;
+        const customers = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+            customers.push({ id: doc.id, ...data });
           }
-          const dist = levenshteinDistance(normTarget, normName);
-          if (dist < minDist) {
-            minDist = dist;
-            bestMatch = cust;
+        });
+
+        if (customers.length > 0) {
+          const normTarget = normalizeGujaratiPhonetics(customerName);
+          let bestMatch = null;
+          let minDist = Infinity;
+
+          for (const cust of customers) {
+            if (!cust.name) continue;
+            const normName = normalizeGujaratiPhonetics(cust.name);
+            if (normTarget && normTarget === normName) {
+              bestMatch = cust;
+              minDist = 0;
+              break;
+            }
+            const dist = levenshteinDistance(normTarget, normName);
+            if (dist < minDist) {
+              minDist = dist;
+              bestMatch = cust;
+            }
           }
-        }
 
-        if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
-          customerDisplayName = bestMatch.name;
-          currentBalance = Number(bestMatch.totalUdhaar) || 0;
-          customerFound = true;
+          if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+            customerDisplayName = bestMatch.name;
+            currentBalance = Number(bestMatch.totalUdhaar) || 0;
+            customerFound = true;
 
-          const custId = bestMatch.customerId || bestMatch.id;
-          const txSnapshot = await db.collection('transactions')
-            .where('shopkeeperId', '==', shopkeeperId)
-            .where('customerId', '==', custId)
-            .get();
+            const custId = bestMatch.customerId || bestMatch.id;
+            const txSnapshot = await db.collection('transactions')
+              .where('shopkeeperId', '==', shopkeeperId)
+              .where('customerId', '==', custId)
+              .get();
 
-          const transactions = [];
-          txSnapshot.forEach((doc) => transactions.push(doc.data()));
+            let transactions = [];
+            txSnapshot.forEach((doc) => transactions.push(doc.data()));
 
-          if (transactions.length > 0) {
-            hasTransactions = true;
-            // Sort by timestamp ascending
-            transactions.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-
-            for (const tx of transactions) {
-              const amt = Number(tx.amount) || 0;
-              if (tx.type === 'udhaar_add') {
-                totalBorrowed += amt;
-              } else if (tx.type === 'udhaar_paid') {
-                totalPaid += amt;
-              }
+            if (dateRange.startDate && dateRange.endDate) {
+              transactions = transactions.filter((tx) => {
+                const txDate = new Date(tx.timestamp || 0);
+                return txDate >= dateRange.startDate && txDate < dateRange.endDate;
+              });
             }
 
-            const latestTx = transactions[transactions.length - 1];
-            if (latestTx && latestTx.timestamp) {
-              const dateObj = new Date(latestTx.timestamp);
-              if (!isNaN(dateObj.getTime())) {
-                lastTransactionDateStr = dateObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
+            if (transactions.length > 0) {
+              hasTransactions = true;
+              transactions.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+              for (const tx of transactions) {
+                const amt = Number(tx.amount) || 0;
+                if (tx.type === 'udhaar_add') totalBorrowed += amt;
+                else if (tx.type === 'udhaar_paid') totalPaid += amt;
+                else if (tx.type === 'sale') totalSales += amt;
+              }
+
+              const latestTx = transactions[transactions.length - 1];
+              if (latestTx && latestTx.timestamp) {
+                const dateObj = new Date(latestTx.timestamp);
+                if (!isNaN(dateObj.getTime())) {
+                  lastTransactionDateStr = dateObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
+                }
               }
             }
+          }
+        }
+      } else {
+        // No specific customer name: aggregate shopkeeper transactions for timeframe
+        const txSnapshot = await db.collection('transactions')
+          .where('shopkeeperId', '==', shopkeeperId)
+          .get();
+
+        let transactions = [];
+        txSnapshot.forEach((doc) => {
+          const data = doc.data();
+          if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+            transactions.push(data);
+          }
+        });
+
+        if (dateRange.startDate && dateRange.endDate) {
+          transactions = transactions.filter((tx) => {
+            const txDate = new Date(tx.timestamp || 0);
+            return txDate >= dateRange.startDate && txDate < dateRange.endDate;
+          });
+        }
+
+        if (transactions.length > 0) {
+          hasTransactions = true;
+          for (const tx of transactions) {
+            const amt = Number(tx.amount) || 0;
+            if (tx.type === 'udhaar_add') totalBorrowed += amt;
+            else if (tx.type === 'udhaar_paid') totalPaid += amt;
+            else if (tx.type === 'sale') totalSales += amt;
           }
         }
       }
@@ -603,34 +736,72 @@ async function handleCustomerHistoryQuery(shopkeeperId, customerName, shopId) {
     }
   }
 
-  if (!customerFound) {
-    const answerText = customerName
-      ? `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`
-      : `ગ્રાહકનું નામ સ્પષ્ટ નથી.`;
-    const answerTextEnglish = customerName
-      ? `No customer named ${customerName} was found.`
-      : `Customer name was not specified.`;
-    return { answerText, answerTextEnglish };
+  if (customerName && !customerFound) {
+    return {
+      answerText: `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`,
+      answerTextEnglish: `No customer named ${customerName} was found.`,
+    };
   }
 
-  let answerText = '';
-  let answerTextEnglish = '';
+  const periodLabelGu = dateRange.labelGu || '';
+  const periodLabelEn = dateRange.labelEn || '';
 
-  if (hasTransactions && lastTransactionDateStr) {
-    answerText = `${customerDisplayName}એ કુલ ₹${totalBorrowed} ઉધાર લીધું છે, ₹${totalPaid} પાછું આપ્યું છે. હાલમાં ₹${currentBalance} બાકી છે. છેલ્લો વ્યવહાર ${lastTransactionDateStr} ના રોજ થયો હતો.`;
-    answerTextEnglish = `${customerDisplayName} borrowed total ₹${totalBorrowed}, paid back ₹${totalPaid}. Current pending balance is ₹${currentBalance}. The last transaction was on ${lastTransactionDateStr}.`;
-  } else {
-    answerText = `${customerDisplayName}નો કોઈ વ્યવહાર મળ્યો નથી. હાલમાં ₹${currentBalance} બાકી છે.`;
-    answerTextEnglish = `${customerDisplayName} has no transaction history recorded. Current balance is ₹${currentBalance}.`;
+  if (customerFound) {
+    if (hasTransactions) {
+      if (actionType === 'udhaar_add') {
+        return {
+          answerText: `${customerDisplayName}એ ${periodLabelGu} ₹${totalBorrowed}નું સામાન ઉધાર લીધું છે.`,
+          answerTextEnglish: `${customerDisplayName} took ₹${totalBorrowed} on credit ${periodLabelEn}.`,
+        };
+      }
+      if (actionType === 'udhaar_paid') {
+        return {
+          answerText: `${customerDisplayName} પાસેથી ${periodLabelGu} ₹${totalPaid} જમા/વસૂલ થયા છે.`,
+          answerTextEnglish: `Collected ₹${totalPaid} from ${customerDisplayName} ${periodLabelEn}.`,
+        };
+      }
+      return {
+        answerText: `${customerDisplayName}એ ${periodLabelGu} ₹${totalBorrowed} ઉધાર લીધું છે, ₹${totalPaid} પાછું આપ્યું છે. હાલમાં ₹${currentBalance} બાકી છે.`,
+        answerTextEnglish: `${customerDisplayName} borrowed ₹${totalBorrowed} and paid back ₹${totalPaid} ${periodLabelEn}. Current pending balance is ₹${currentBalance}.`,
+      };
+    } else {
+      return {
+        answerText: `${customerDisplayName}નો ${periodLabelGu} કોઈ વ્યવહાર મળ્યો નથી. હાલમાં ₹${currentBalance} બાકી છે.`,
+        answerTextEnglish: `${customerDisplayName} has no transaction history recorded ${periodLabelEn}. Current balance is ₹${currentBalance}.`,
+      };
+    }
   }
 
-  return { customerName: customerDisplayName, totalBorrowed, totalPaid, currentBalance, lastTransactionDateStr, answerText, answerTextEnglish };
+  // Shopwide transaction history summary
+  if (hasTransactions) {
+    if (actionType === 'udhaar_paid') {
+      return {
+        answerText: `${periodLabelGu} કુલ ₹${totalPaid} ની ઉધાર વસૂલી થઈ છે.`,
+        answerTextEnglish: `Total udhaar collected ${periodLabelEn} is ₹${totalPaid}.`,
+      };
+    }
+    if (actionType === 'udhaar_add') {
+      return {
+        answerText: `${periodLabelGu} કુલ ₹${totalBorrowed} નવું ઉધાર આપવામાં આવ્યું છે.`,
+        answerTextEnglish: `Total new udhaar given ${periodLabelEn} is ₹${totalBorrowed}.`,
+      };
+    }
+    return {
+      answerText: `${periodLabelGu} કુલ વેચાણ ₹${totalSales}, નવું ઉધાર ₹${totalBorrowed}, અને ઉધાર વસૂલી ₹${totalPaid} થઈ છે.`,
+      answerTextEnglish: `${periodLabelEn} total sales ₹${totalSales}, new udhaar ₹${totalBorrowed}, and collection ₹${totalPaid}.`,
+    };
+  }
+
+  return {
+    answerText: `${periodLabelGu} કોઈ વ્યવહાર નોંધાયા નથી.`,
+    answerTextEnglish: `No transactions were recorded ${periodLabelEn}.`,
+  };
 }
 
 /**
  * Helper to query inventory status for query endpoint.
  */
-async function handleInventoryStatusQuery(shopkeeperId, itemName, shopId) {
+async function handleInventoryStatusQuery(shopkeeperId, itemName, shopId, subType = null) {
   let answerText = '';
   let answerTextEnglish = '';
   const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
@@ -648,6 +819,56 @@ async function handleInventoryStatusQuery(shopkeeperId, itemName, shopId) {
           items.push({ id: doc.id, ...data });
         }
       });
+
+      // Handle "out_of_stock": quantity <= 0
+      if (subType === 'out_of_stock') {
+        const outItems = items.filter((i) => (Number(i.quantity) || 0) <= 0);
+        if (outItems.length === 0) {
+          return {
+            answerText: 'કોઈપણ વસ્તુ સ્ટોકમાંથી સંપૂર્ણ પૂરી થઈ નથી.',
+            answerTextEnglish: 'No items are completely out of stock.',
+          };
+        }
+        const outList = outItems.map((i) => i.itemName || 'Item').join(', ');
+        return {
+          answerText: `આ ${outItems.length} વસ્તુઓનો સ્ટોક સંપૂર્ણ પૂરો (0) થઈ ગયો છે: ${outList}.`,
+          answerTextEnglish: `The following ${outItems.length} items are completely out of stock (quantity 0): ${outList}.`,
+        };
+      }
+
+      // Handle "best_selling": best selling item based on sale transactions
+      if (subType === 'best_selling') {
+        const txSnapshot = await db.collection('transactions')
+          .where('shopkeeperId', '==', shopkeeperId)
+          .get();
+
+        const itemSalesCount = {};
+        txSnapshot.forEach((doc) => {
+          const tx = doc.data();
+          if (isDocInShop(tx, effectiveShopId, shopkeeperId) && Array.isArray(tx.items)) {
+            tx.items.forEach((it) => {
+              if (typeof it === 'string' && it.trim()) {
+                const clean = it.trim();
+                itemSalesCount[clean] = (itemSalesCount[clean] || 0) + 1;
+              }
+            });
+          }
+        });
+
+        const sortedItems = Object.entries(itemSalesCount).sort((a, b) => b[1] - a[1]);
+        if (sortedItems.length > 0) {
+          const [topItem, count] = sortedItems[0];
+          return {
+            answerText: `તમારી દુકાનમાં સૌથી વધુ વેચાતી વસ્તુ ${topItem} છે (${count} વખત વેચાઈ).`,
+            answerTextEnglish: `The best-selling item in your shop is ${topItem} (sold ${count} times).`,
+          };
+        } else {
+          return {
+            answerText: 'હજી સુધી કોઈ વસ્તુના વેચાણનો રેકોર્ડ મળ્યો નથી.',
+            answerTextEnglish: 'No item sales history recorded yet.',
+          };
+        }
+      }
 
       if (itemName && items.length > 0) {
         // Search specific item using fuzzy matching
@@ -757,22 +978,129 @@ async function handleInventoryLowStockQuery(shopkeeperId, shopId) {
 }
 
 /**
- * Helper to query daily summary for query endpoint.
+ * Helper to query daily summary and trends for query endpoint.
  */
-async function handleDailySummaryQuery(shopkeeperId, shopId) {
+async function handleDailySummaryQuery(shopkeeperId, shopId, subType = null) {
   let totalSales = 0;
   let totalNewUdhaar = 0;
   let totalUdhaarCollected = 0;
   let transactionCount = 0;
   const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
 
+  const now = new Date();
+  const istDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+  const startOfTodayIST = new Date(`${istDateStr}T00:00:00.000+05:30`);
+  const endOfTodayIST = new Date(startOfTodayIST.getTime() + 24 * 60 * 60 * 1000);
+
   if (shopkeeperId) {
     try {
-      const now = new Date();
-      const istDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
-      const startOfTodayIST = new Date(`${istDateStr}T00:00:00.000+05:30`);
-      const endOfTodayIST = new Date(startOfTodayIST.getTime() + 24 * 60 * 60 * 1000);
+      // Handle "comparison": compare today's sales with yesterday's
+      if (subType === 'comparison') {
+        const startOfYesterdayIST = new Date(startOfTodayIST.getTime() - 24 * 60 * 60 * 1000);
 
+        const snapshot = await db.collection('transactions')
+          .where('shopkeeperId', '==', shopkeeperId)
+          .where('timestamp', '>=', startOfYesterdayIST.toISOString())
+          .where('timestamp', '<', endOfTodayIST.toISOString())
+          .get();
+
+        let todaySales = 0;
+        let yesterdaySales = 0;
+
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (isDocInShop(data, effectiveShopId, shopkeeperId) && data.type === 'sale') {
+            const txDate = new Date(data.timestamp || 0);
+            const amt = Number(data.amount) || 0;
+            if (txDate >= startOfTodayIST) {
+              todaySales += amt;
+            } else {
+              yesterdaySales += amt;
+            }
+          }
+        });
+
+        if (todaySales > yesterdaySales) {
+          const diff = todaySales - yesterdaySales;
+          return {
+            answerText: `આજે ગઈકાલ કરતાં ₹${diff} વધુ વેચાણ થયું છે. (આજે: ₹${todaySales}, ગઈકાલે: ₹${yesterdaySales})`,
+            answerTextEnglish: `Today sales are higher than yesterday by ₹${diff}. (Today: ₹${todaySales}, Yesterday: ₹${yesterdaySales})`,
+          };
+        } else if (todaySales < yesterdaySales) {
+          const diff = yesterdaySales - todaySales;
+          return {
+            answerText: `આજે ગઈકાલ કરતાં ₹${diff} ઓછું વેચાણ થયું છે. (આજે: ₹${todaySales}, ગઈકાલે: ₹${yesterdaySales})`,
+            answerTextEnglish: `Today sales are lower than yesterday by ₹${diff}. (Today: ₹${todaySales}, Yesterday: ₹${yesterdaySales})`,
+          };
+        } else {
+          return {
+            answerText: `આજે અને ગઈકાલે બંને દિવસે સરખું વેચાણ (₹${todaySales}) થયું છે.`,
+            answerTextEnglish: `Today and yesterday sales are equal (₹${todaySales}).`,
+          };
+        }
+      }
+
+      // Handle "best_day": best day of the week
+      if (subType === 'best_day') {
+        const startOfWeekIST = new Date(startOfTodayIST.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+        const snapshot = await db.collection('transactions')
+          .where('shopkeeperId', '==', shopkeeperId)
+          .where('timestamp', '>=', startOfWeekIST.toISOString())
+          .where('timestamp', '<', endOfTodayIST.toISOString())
+          .get();
+
+        const dailySalesMap = {}; // dateStr -> sum
+        const dayNamesGu = {
+          0: 'રવિવાર',
+          1: 'સોમવાર',
+          2: 'મંગળવાર',
+          3: 'બુધવાર',
+          4: 'ગુરુવાર',
+          5: 'શુક્રવાર',
+          6: 'શનિવાર',
+        };
+        const dayNamesEn = {
+          0: 'Sunday',
+          1: 'Monday',
+          2: 'Tuesday',
+          3: 'Wednesday',
+          4: 'Thursday',
+          5: 'Friday',
+          6: 'Saturday',
+        };
+
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (isDocInShop(data, effectiveShopId, shopkeeperId) && data.type === 'sale') {
+            const txDate = new Date(data.timestamp || 0);
+            const dateStr = txDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+            const amt = Number(data.amount) || 0;
+            dailySalesMap[dateStr] = (dailySalesMap[dateStr] || 0) + amt;
+          }
+        });
+
+        const sortedDays = Object.entries(dailySalesMap).sort((a, b) => b[1] - a[1]);
+        if (sortedDays.length > 0) {
+          const [bestDateStr, maxSales] = sortedDays[0];
+          const bestDateObj = new Date(`${bestDateStr}T12:00:00.000+05:30`);
+          const dayOfWeek = bestDateObj.getDay();
+          const nameGu = dayNamesGu[dayOfWeek] || bestDateStr;
+          const nameEn = dayNamesEn[dayOfWeek] || bestDateStr;
+
+          return {
+            answerText: `આ અઠવાડિયાનો શ્રેષ્ઠ વેચાણ દિવસ ${nameGu} હતો, જેમાં કુલ ₹${maxSales} નું વેચાણ થયું.`,
+            answerTextEnglish: `The best sales day this week was ${nameEn} with total sales of ₹${maxSales}.`,
+          };
+        } else {
+          return {
+            answerText: 'આ અઠવાડિયે હજી સુધી રોકડ વેચાણનો કોઈ રેકોર્ડ મળ્યો નથી.',
+            answerTextEnglish: 'No cash sales recorded yet this week.',
+          };
+        }
+      }
+
+      // Default today summary
       const snapshot = await db.collection('transactions')
         .where('shopkeeperId', '==', shopkeeperId)
         .where('timestamp', '>=', startOfTodayIST.toISOString())
@@ -794,10 +1122,160 @@ async function handleDailySummaryQuery(shopkeeperId, shopId) {
     }
   }
 
-  const answerText = `આજનું કુલ વેચાણ ${totalSales} રૂપિયા છે, નવું ઉધાર ${totalNewUdhaar} રૂપિયા છે, અને ઉધાર વસૂલી ${totalUdhaarCollected} રૂપિયા છે.`;
-  const answerTextEnglish = `Today's total sale is ${totalSales} rupees, new udhaar is ${totalNewUdhaar} rupees, and udhaar collected is ${totalUdhaarCollected} rupees.`;
+  const answerText = `આજનું કુલ વેચાણ ₹${totalSales} છે, નવું ઉધાર ₹${totalNewUdhaar} છે, અને ઉધાર વસૂલી ₹${totalUdhaarCollected} છે.`;
+  const answerTextEnglish = `Today's total sale is ₹${totalSales}, new udhaar is ₹${totalNewUdhaar}, and udhaar collected is ₹${totalUdhaarCollected}.`;
 
   return { totalSales, totalNewUdhaar, totalUdhaarCollected, transactionCount, answerText, answerTextEnglish };
+}
+
+/**
+ * Helper to generate Business Insights for query endpoint.
+ */
+async function handleBusinessInsightsQuery(shopkeeperId, shopId, subType = null) {
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
+
+  if (!shopkeeperId) {
+    return {
+      answerText: 'દુકાનની માહિતી ઉપલબ્ધ નથી.',
+      answerTextEnglish: 'Shop information is not available.',
+    };
+  }
+
+  try {
+    const now = new Date();
+    const istDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+    const startOfTodayIST = new Date(`${istDateStr}T00:00:00.000+05:30`);
+    const endOfTodayIST = new Date(startOfTodayIST.getTime() + 24 * 60 * 60 * 1000);
+
+    // Fetch todays txs
+    const todaySnapshot = await db.collection('transactions')
+      .where('shopkeeperId', '==', shopkeeperId)
+      .where('timestamp', '>=', startOfTodayIST.toISOString())
+      .where('timestamp', '<', endOfTodayIST.toISOString())
+      .get();
+
+    let todaySales = 0;
+    let todayNewUdhaar = 0;
+    let todayCollected = 0;
+
+    todaySnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+        const amt = Number(data.amount) || 0;
+        if (data.type === 'sale') todaySales += amt;
+        else if (data.type === 'udhaar_add') todayNewUdhaar += amt;
+        else if (data.type === 'udhaar_paid') todayCollected += amt;
+      }
+    });
+
+    if (subType === 'today_earnings') {
+      const totalIncome = todaySales + todayCollected;
+      return {
+        answerText: `આજે રોકડ કમાણી ₹${totalIncome} થઈ છે (વેચાણ: ₹${todaySales}, ઉધાર વસૂલી: ₹${todayCollected}). નવું ઉધાર ₹${todayNewUdhaar} છે.`,
+        answerTextEnglish: `Today's total cash collection is ₹${totalIncome} (Sales: ₹${todaySales}, Udhaar collected: ₹${todayCollected}). New udhaar added is ₹${todayNewUdhaar}.`,
+      };
+    }
+
+    if (subType === 'monthly_overview') {
+      const monthRange = getDateRangeFromTimeframe('this_month');
+      const monthSnapshot = await db.collection('transactions')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .where('timestamp', '>=', monthRange.startDate.toISOString())
+        .where('timestamp', '<', monthRange.endDate.toISOString())
+        .get();
+
+      let mSales = 0;
+      let mUdhaar = 0;
+      let mCollected = 0;
+
+      monthSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          const amt = Number(data.amount) || 0;
+          if (data.type === 'sale') mSales += amt;
+          else if (data.type === 'udhaar_add') mUdhaar += amt;
+          else if (data.type === 'udhaar_paid') mCollected += amt;
+        }
+      });
+
+      return {
+        answerText: `આ મહિને કુલ વેચાણ ₹${mSales}, નવું ઉધાર ₹${mUdhaar}, અને ઉધાર વસૂલી ₹${mCollected} થઈ છે. એકંદરે વેપાર સારો રહ્યો છે.`,
+        answerTextEnglish: `This month total sales: ₹${mSales}, new udhaar: ₹${mUdhaar}, and collection: ₹${mCollected}. Overall business is steady.`,
+      };
+    }
+
+    if (subType === 'suggestions') {
+      // Check pending alerts & low stock
+      const custSnapshot = await db.collection('customers')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      let highUdhaarCount = 0;
+      let totalUdhaar = 0;
+      custSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          const bal = Number(data.totalUdhaar) || 0;
+          if (bal > 0) {
+            totalUdhaar += bal;
+            highUdhaarCount++;
+          }
+        }
+      });
+
+      const invSnapshot = await db.collection('inventory')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      let lowStockCount = 0;
+      invSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          const qty = Number(data.quantity) || 0;
+          const thresh = Number(data.lowStockThreshold) || 5;
+          if (qty <= thresh) lowStockCount++;
+        }
+      });
+
+      const suggestions = [];
+      const suggestionsEn = [];
+
+      if (totalUdhaar > 1000) {
+        suggestions.push(`કુલ ₹${totalUdhaar} ઉધાર બાકી છે, જૂના ગ્રાહકોને વસૂલી માટે રીમાઇન્ડર મોકલો`);
+        suggestionsEn.push(`Total pending udhaar is ₹${totalUdhaar}, send WhatsApp reminders to long overdue customers`);
+      }
+
+      if (lowStockCount > 0) {
+        suggestions.push(`${lowStockCount} વસ્તુઓનો સ્ટોક ઓછો છે, નવો સ્ટોક મંગાવો`);
+        suggestionsEn.push(`${lowStockCount} items running low on stock, reorder inventory`);
+      }
+
+      if (suggestions.length === 0) {
+        return {
+          answerText: 'તમારો વેપાર સરસ ચાલી રહ્યો છે! ઉધાર અને સ્ટોક બધું નિયંત્રણમાં છે.',
+          answerTextEnglish: 'Your shop is running smoothly! Udhaar and inventory are well managed.',
+        };
+      }
+
+      return {
+        answerText: `સુઝાવો: ${suggestions.join('; ')}.`,
+        answerTextEnglish: `Suggestions: ${suggestionsEn.join('; ')}.`,
+      };
+    }
+
+    // Default overview
+    const totalIncome = todaySales + todayCollected;
+    return {
+      answerText: `આજનો વેપાર: કુલ કમાણી ₹${totalIncome}, નવું ઉધાર ₹${todayNewUdhaar}.`,
+      answerTextEnglish: `Today's overview: total income ₹${totalIncome}, new udhaar ₹${todayNewUdhaar}.`,
+    };
+  } catch (err) {
+    console.warn('Error generating business insights:', err.message);
+    return {
+      answerText: 'વેપારની માહિતી મેળવવામાં ભૂલ આવી.',
+      answerTextEnglish: 'Could not fetch business insights data.',
+    };
+  }
 }
 
 /**
@@ -841,47 +1319,88 @@ const processVoiceQuery = async (req, res) => {
         });
       }
 
-      let qType = mockQueryType;
+      let qType = mockQueryType || req.body.mockQueryType;
+      let sType = req.body.mockSubType;
+      let timeframe = req.body.mockTimeframe;
+      let actionType = req.body.mockActionType;
+
       if (!qType) {
-        if (decodedAudio.includes('history')) qType = 'customer_history';
-        else if (decodedAudio.includes('low_stock')) qType = 'inventory_low_stock';
-        else if (decodedAudio.includes('inventory')) qType = 'inventory_status';
-        else if (decodedAudio.includes('summary')) qType = 'daily_summary';
-        else if (decodedAudio.includes('general')) qType = 'general';
-        else qType = 'customer_balance';
+        if (decodedAudio.includes('top_debtor') || decodedAudio.includes('sabse zyada udhaar')) {
+          qType = 'customer_balance';
+          sType = 'top_debtor';
+        } else if (decodedAudio.includes('debtor_count') || decodedAudio.includes('kitne customers udhaar')) {
+          qType = 'customer_balance';
+          sType = 'debtor_count';
+        } else if (decodedAudio.includes('total_outstanding') || decodedAudio.includes('total kitna udhaar')) {
+          qType = 'customer_balance';
+          sType = 'total_outstanding';
+        } else if (decodedAudio.includes('history')) {
+          qType = 'customer_history';
+        } else if (decodedAudio.includes('low_stock')) {
+          qType = 'inventory_low_stock';
+        } else if (decodedAudio.includes('out_of_stock') || decodedAudio.includes('khatam thai gaya')) {
+          qType = 'inventory_status';
+          sType = 'out_of_stock';
+        } else if (decodedAudio.includes('best_selling') || decodedAudio.includes('sabse zyada bikta')) {
+          qType = 'inventory_status';
+          sType = 'best_selling';
+        } else if (decodedAudio.includes('inventory')) {
+          qType = 'inventory_status';
+        } else if (decodedAudio.includes('comparison') || decodedAudio.includes('kal se aaj')) {
+          qType = 'daily_summary';
+          sType = 'comparison';
+        } else if (decodedAudio.includes('best_day') || decodedAudio.includes('best din')) {
+          qType = 'daily_summary';
+          sType = 'best_day';
+        } else if (decodedAudio.includes('summary')) {
+          qType = 'daily_summary';
+        } else if (decodedAudio.includes('insights') || decodedAudio.includes('aaj kamai') || decodedAudio.includes('mahina kem') || decodedAudio.includes('sudharo')) {
+          qType = 'business_insights';
+          if (decodedAudio.includes('aaj kamai')) sType = 'today_earnings';
+          else if (decodedAudio.includes('mahina kem')) sType = 'monthly_overview';
+          else if (decodedAudio.includes('sudharo')) sType = 'suggestions';
+        } else if (decodedAudio.includes('general')) {
+          qType = 'general';
+        } else {
+          qType = 'customer_balance';
+        }
       }
 
-    const effectiveShopId = getEffectiveShopId(req);
+      const effectiveShopId = getEffectiveShopId(req);
 
       if (qType === 'customer_balance') {
-        const custName = mockCustomerName || req.body.mockItemName || 'Ramesh';
-      const result = await handleCustomerBalanceQuery(shopkeeperId, custName, effectiveShopId);
+        const custName = mockCustomerName || req.body.mockItemName || (sType ? null : 'Ramesh');
+        const result = await handleCustomerBalanceQuery(shopkeeperId, custName, effectiveShopId, sType);
         return res.status(200).json({
           isQuery: true,
           queryType: 'customer_balance',
+          subType: sType,
           answerText: result.answerText,
           answerTextEnglish: result.answerTextEnglish,
         });
       } else if (qType === 'customer_history') {
-        const custName = mockCustomerName || 'Ramesh';
-      const result = await handleCustomerHistoryQuery(shopkeeperId, custName, effectiveShopId);
+        const custName = mockCustomerName || req.body.mockCustomerName || null;
+        const result = await handleCustomerHistoryQuery(shopkeeperId, custName, effectiveShopId, timeframe, actionType);
         return res.status(200).json({
           isQuery: true,
           queryType: 'customer_history',
+          timeframe,
+          actionType,
           answerText: result.answerText,
           answerTextEnglish: result.answerTextEnglish,
         });
       } else if (qType === 'inventory_status') {
         const itemName = req.body.mockItemName || null;
-      const result = await handleInventoryStatusQuery(shopkeeperId, itemName, effectiveShopId);
+        const result = await handleInventoryStatusQuery(shopkeeperId, itemName, effectiveShopId, sType);
         return res.status(200).json({
           isQuery: true,
           queryType: 'inventory_status',
+          subType: sType,
           answerText: result.answerText,
           answerTextEnglish: result.answerTextEnglish,
         });
       } else if (qType === 'inventory_low_stock') {
-      const result = await handleInventoryLowStockQuery(shopkeeperId, effectiveShopId);
+        const result = await handleInventoryLowStockQuery(shopkeeperId, effectiveShopId);
         return res.status(200).json({
           isQuery: true,
           queryType: 'inventory_low_stock',
@@ -889,10 +1408,20 @@ const processVoiceQuery = async (req, res) => {
           answerTextEnglish: result.answerTextEnglish,
         });
       } else if (qType === 'daily_summary') {
-      const result = await handleDailySummaryQuery(shopkeeperId, effectiveShopId);
+        const result = await handleDailySummaryQuery(shopkeeperId, effectiveShopId, sType);
         return res.status(200).json({
           isQuery: true,
           queryType: 'daily_summary',
+          subType: sType,
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+      } else if (qType === 'business_insights') {
+        const result = await handleBusinessInsightsQuery(shopkeeperId, effectiveShopId, sType);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'business_insights',
+          subType: sType,
           answerText: result.answerText,
           answerTextEnglish: result.answerTextEnglish,
         });
@@ -900,8 +1429,8 @@ const processVoiceQuery = async (req, res) => {
         return res.status(200).json({
           isQuery: true,
           queryType: 'general',
-          answerText: 'શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?',
-          answerTextEnglish: 'Are you asking about a specific customer or item?',
+          answerText: 'શું તમે કોઈ ચોક્કસ ગ્રાહક, વસ્તુ અથવા વેચાણ વિશે પૂછવા માંગો છો?',
+          answerTextEnglish: 'Are you asking about a specific customer, item, or sale?',
         });
       }
     }
@@ -920,36 +1449,68 @@ const processVoiceQuery = async (req, res) => {
 
     const prompt = `
 You are an expert multilingual speech recognition and voice query assistant for Indian shopkeepers.
-Analyze the provided audio recording. Note that the speaker may speak in Gujarati, Hindi, English, or any mix of these three languages. Auto-detect the language(s) used and transcribe accurately regardless of which language or mix is used.
+Analyze the provided audio recording. Note that the speaker may speak in Gujarati, Hindi, English, or any mix of these three languages (e.g. Gujarati sentence with Hindi or English words). Auto-detect the language(s) used and transcribe accurately regardless of which language or mix is used.
 
 Task:
-1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, customer history, stock status, daily sales, etc.) OR making a TRANSACTION instruction (recording sale/udhaar).
+1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, history, sales, inventory, business insights) OR making a TRANSACTION instruction (recording sale/udhaar/stock change).
    - "classification": "QUERY" or "TRANSACTION"
-2. If classification is "QUERY", recognize these query types:
-   - "customer_balance": asking how much a specific customer owes / pending balance.
-   - "customer_history": asking for detailed transaction history for a specific customer (what they bought/borrowed, when, payments, history).
-   - "daily_summary": asking about today's total sales, new udhaar, or collection totals.
-   - "inventory_status": asking what items are in stock, total stock quantity, or a specific item's quantity.
-   - "inventory_low_stock": asking which items are running low on stock or out of stock.
-   - "general": any other question or fallback.
+
+2. If classification is "QUERY", categorize into one of these queryTypes and subTypes:
+
+   a) "customer_balance":
+      - subType "single": balance of a specific customer (e.g. "Ramesh ka kitna udhaar baaki hai")
+      - subType "top_debtor": who owes the most (e.g. "sabse zyada udhaar kiska hai", "konnu sauthi vadhu udhaar chhe")
+      - subType "debtor_count": how many customers have pending udhaar (e.g. "kitne customers udhaar par hai", "kethla grahak nu udhaar baaki chhe")
+      - subType "total_outstanding": total outstanding balance across all customers (e.g. "total kitna udhaar bakaya hai", "kool kethlu udhaar chhe")
+
+   b) "customer_history":
+      - asking for transaction history/activity.
+      - Can be for a specific customer or for all transactions.
+      - Identify timeframe ("today", "yesterday", "this_week", "last_week", "this_month", "last_month", "all_time")
+      - Identify actionType ("udhaar_add" for credit/taken, "udhaar_paid" for vasool/collected/paid back, "sale" for sales, "all")
+      - e.g. "is mahine Ramesh ne kitna liya" -> customer_name: "Ramesh", timeframe: "this_month", actionType: "udhaar_add"
+      - e.g. "pichhle hafte kitna vasool hua" -> timeframe: "last_week", actionType: "udhaar_paid"
+
+   c) "daily_summary":
+      - subType "today_summary": today's sales, new udhaar, and collection (e.g. "aaj ka summary batao")
+      - subType "comparison": comparing today's sales with yesterday (e.g. "kal se aaj zyada vechaan hua ke kam")
+      - subType "best_day": best sales day this week (e.g. "is hafte ka best din kaunsa tha")
+
+   d) "inventory_status" or "inventory_low_stock":
+      - "inventory_status" subType "item_check": specific item quantity or general inventory list (e.g. "Parle-G kitna hai")
+      - "inventory_low_stock": items running low on stock
+      - "inventory_status" subType "out_of_stock": items completely out of stock / zero quantity (e.g. "kitne items khatam thai gaya", "kaunsa stock zero hai")
+      - "inventory_status" subType "best_selling": best-selling item based on sales (e.g. "sabse zyada bikta hua item kaunsa")
+
+   e) "business_insights":
+      - subType "today_earnings": how earnings/sales went today (e.g. "aaj kamai kem thai", "aaj kaisa raha business")
+      - subType "monthly_overview": overall monthly performance overview (e.g. "mahina kem gayo", "is mahine kaisa raha shop")
+      - subType "suggestions": suggestions/improvements for shop (e.g. "kya sudharo karvo joie", "business ke mate shu karvu")
+
+   f) "general":
+      - Any other question or fallback.
 
 3. Entity Extraction:
-   - "customer_name": Extracted customer name if queryType is "customer_balance" or "customer_history" (string or null). Transcribe EXACTLY as spoken without forcing to an existing customer name unless phonetically identical.
+   - "customer_name": Extracted customer name if mentioned (string or null). Transcribe EXACTLY as spoken without forcing to an existing customer name unless phonetically identical.
      - Existing Customer List for this shop: [ ${customerContextListStr} ]
-   - "item_name": Extracted product/item name if queryType is "inventory_status" and a specific item is mentioned (string or null).
+   - "item_name": Extracted product/item name if mentioned (string or null).
+   - "timeframe": "today" | "yesterday" | "this_week" | "last_week" | "this_month" | "last_month" | "all_time" | null
+   - "actionType": "udhaar_add" | "udhaar_paid" | "sale" | "all" | null
 
-4. General Query Handling:
-   - If queryType is "general", provide a helpful best-effort answer in Gujarati script if context permits, or a clarifying question like "શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?"
-   - "answerText": Gujarati spoken text (required for "general", optional/null for data-driven query types).
-   - "answerTextEnglish": English translation of answerText.
+4. Output fields:
+   - "answerText": Gujarati spoken response text (optional/null if backend will construct from data, required for "general").
+   - "answerTextEnglish": English translation (optional/null if backend constructs from data).
    - "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed".
 
 Return ONLY a valid JSON object without markdown formatting:
 {
   "classification": "QUERY" | "TRANSACTION",
-  "queryType": "customer_balance" | "customer_history" | "daily_summary" | "inventory_status" | "inventory_low_stock" | "general" | null,
+  "queryType": "customer_balance" | "customer_history" | "daily_summary" | "inventory_status" | "inventory_low_stock" | "business_insights" | "general",
+  "subType": "single" | "top_debtor" | "debtor_count" | "total_outstanding" | "today_summary" | "comparison" | "best_day" | "item_check" | "out_of_stock" | "best_selling" | "today_earnings" | "monthly_overview" | "suggestions" | null,
   "customer_name": "..." | null,
   "item_name": "..." | null,
+  "timeframe": "today" | "yesterday" | "this_week" | "last_week" | "this_month" | "last_month" | "all_time" | null,
+  "actionType": "udhaar_add" | "udhaar_paid" | "sale" | "all" | null,
   "detectedLanguage": "gujarati" | "hindi" | "english" | "mixed",
   "answerText": "..." | null,
   "answerTextEnglish": "..." | null
@@ -1013,26 +1574,30 @@ Return ONLY a valid JSON object without markdown formatting:
     console.log(`[Voice Query Timing] [${new Date().toISOString()}] [3/3] End-to-End Voice Query Completed | Total Time: ${totalMs}ms (Firestore: ${firestoreFetchMs}ms, Gemini: ${geminiCallMs}ms)`);
 
     if (queryType === 'customer_balance') {
-      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId);
+      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId, parsedResult.subType);
       return res.status(200).json({
         isQuery: true,
         queryType: 'customer_balance',
+        subType: parsedResult.subType,
         answerText: balanceResult.answerText,
         answerTextEnglish: balanceResult.answerTextEnglish,
       });
     } else if (queryType === 'customer_history') {
-      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId);
+      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
       return res.status(200).json({
         isQuery: true,
         queryType: 'customer_history',
+        timeframe: parsedResult.timeframe,
+        actionType: parsedResult.actionType,
         answerText: historyResult.answerText,
         answerTextEnglish: historyResult.answerTextEnglish,
       });
     } else if (queryType === 'inventory_status') {
-      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name, effectiveShopId);
+      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name, effectiveShopId, parsedResult.subType);
       return res.status(200).json({
         isQuery: true,
         queryType: 'inventory_status',
+        subType: parsedResult.subType,
         answerText: inventoryResult.answerText,
         answerTextEnglish: inventoryResult.answerTextEnglish,
       });
@@ -1045,19 +1610,60 @@ Return ONLY a valid JSON object without markdown formatting:
         answerTextEnglish: lowStockResult.answerTextEnglish,
       });
     } else if (queryType === 'daily_summary') {
-      const summaryResult = await handleDailySummaryQuery(shopkeeperId, effectiveShopId);
+      const summaryResult = await handleDailySummaryQuery(shopkeeperId, effectiveShopId, parsedResult.subType);
       return res.status(200).json({
         isQuery: true,
         queryType: 'daily_summary',
+        subType: parsedResult.subType,
         answerText: summaryResult.answerText,
         answerTextEnglish: summaryResult.answerTextEnglish,
       });
+    } else if (queryType === 'business_insights') {
+      const insightResult = await handleBusinessInsightsQuery(shopkeeperId, effectiveShopId, parsedResult.subType);
+      return res.status(200).json({
+        isQuery: true,
+        queryType: 'business_insights',
+        subType: parsedResult.subType,
+        answerText: insightResult.answerText,
+        answerTextEnglish: insightResult.answerTextEnglish,
+      });
     } else {
+      // Smart Fallback Handling: check if customer, item, or timeframe was extracted
+      if (parsedResult.customer_name) {
+        const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'customer_history',
+          answerText: historyResult.answerText,
+          answerTextEnglish: historyResult.answerTextEnglish,
+        });
+      }
+
+      if (parsedResult.item_name) {
+        const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name, effectiveShopId, parsedResult.subType);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'inventory_status',
+          answerText: inventoryResult.answerText,
+          answerTextEnglish: inventoryResult.answerTextEnglish,
+        });
+      }
+
+      if (parsedResult.timeframe) {
+        const historyResult = await handleCustomerHistoryQuery(shopkeeperId, null, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
+        return res.status(200).json({
+          isQuery: true,
+          queryType: 'customer_history',
+          answerText: historyResult.answerText,
+          answerTextEnglish: historyResult.answerTextEnglish,
+        });
+      }
+
       return res.status(200).json({
         isQuery: true,
         queryType: 'general',
-        answerText: parsedResult.answerText || 'શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?',
-        answerTextEnglish: parsedResult.answerTextEnglish || 'Are you asking about a specific customer or item?',
+        answerText: parsedResult.answerText || 'શું તમે કોઈ ચોક્કસ ગ્રાહક, વસ્તુ અથવા વેચાણ વિશે પૂછવા માંગો છો?',
+        answerTextEnglish: parsedResult.answerTextEnglish || 'Are you asking about a specific customer, item, or sale?',
       });
     }
   } catch (error) {
