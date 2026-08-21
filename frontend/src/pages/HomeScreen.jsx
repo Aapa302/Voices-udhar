@@ -1,15 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight, WifiOff, CloudOff } from 'lucide-react';
+import { Mic, Square, Loader2, CheckCircle2, Edit2, RotateCcw, Save, AlertCircle, Sparkles, Check, Phone, AlertTriangle, HelpCircle, Volume2, VolumeX, MessageSquare, X, ChevronRight, WifiOff, CloudOff, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { processVoiceAudio, processVoiceQuery } from '../api/voice';
-import { getCustomers, createCustomer, getCustomerAlerts, getCustomerReminders, markReminderSent, getRemindersToday } from '../api/customers';
+import { processVoiceAudio } from '../api/voice';
+import { getCustomers, createCustomer } from '../api/customers';
 import { logTransaction } from '../api/transactions';
 import { generateBillApi } from '../api/bill';
-import { getInventoryApi, addOrUpdateInventoryApi } from '../api/inventory';
+import { addOrUpdateInventoryApi } from '../api/inventory';
 import { savePendingRecording, getPendingRecordingsCount, getAllPendingRecordings, deletePendingRecording } from '../utils/offlineQueue';
 import BillModal from '../components/BillModal';
-import { Package } from 'lucide-react';
 
 // State Enum
 const SCREEN_STATE = {
@@ -22,7 +20,6 @@ const SCREEN_STATE = {
   SAVING: 'SAVING',
   SUCCESS: 'SUCCESS',
   PERMISSION_DENIED: 'PERMISSION_DENIED',
-  QUERY_RESPONSE: 'QUERY_RESPONSE',
   OFFLINE_RECORDED: 'OFFLINE_RECORDED',
 };
 
@@ -48,7 +45,6 @@ const getActionLabel = (txType) => {
 };
 
 export default function HomeScreen() {
-  const navigate = useNavigate();
   const [screenState, setScreenState] = useState(SCREEN_STATE.IDLE);
   const [errorMessage, setErrorMessage] = useState('');
   const [parsedData, setParsedData] = useState(null);
@@ -91,7 +87,7 @@ export default function HomeScreen() {
       return;
     }
 
-    // Sort oldest first by timestamp or createdAt or id
+    // Sort oldest first
     itemsToSync.sort((a, b) => {
       const timeA = new Date(a.timestamp || a.createdAt || a.id).getTime();
       const timeB = new Date(b.timestamp || b.createdAt || b.id).getTime();
@@ -123,18 +119,6 @@ export default function HomeScreen() {
     setErrorMessage('');
 
     try {
-      if (item.isQueryMode) {
-        const queryRes = await processVoiceQuery(item.audioBase64, item.mimeType || 'audio/webm');
-        if (!queryRes || queryRes.isQuery === false) {
-          setErrorMessage(queryRes?.message || 'આ ટ્રાન્ઝેક્શન છે. / This is a transaction.');
-          setScreenState(SCREEN_STATE.ERROR);
-          return;
-        }
-        setQueryResult(queryRes);
-        setScreenState(SCREEN_STATE.QUERY_RESPONSE);
-        return;
-      }
-
       const result = await processVoiceAudio(item.audioBase64, item.mimeType || 'audio/webm');
 
       if (!result || result.intent === 'unclear' || (result.confidence === 'low' && !result.customer_name && !result.amount)) {
@@ -204,51 +188,7 @@ export default function HomeScreen() {
     }
   };
 
-  // Pending udhaar alerts state & low stock alerts state for Home screen banner
-  const [pendingAlertCount, setPendingAlertCount] = useState(0);
-  const [lowStockCount, setLowStockCount] = useState(0);
-  const [isAlertBannerDismissed, setIsAlertBannerDismissed] = useState(false);
-  const [isStockAlertDismissed, setIsStockAlertDismissed] = useState(false);
-
-  // Smart Reminders state
-  const [reminders, setReminders] = useState([]);
-  const [currentReminderIndex, setCurrentReminderIndex] = useState(0);
-  const [isReminderDismissed, setIsReminderDismissed] = useState(false);
-
-  // Today Reminders Queue banner state
-  const [todayRemindersCount, setTodayRemindersCount] = useState(0);
-  const [isTodayRemindersDismissed, setIsTodayRemindersDismissed] = useState(false);
-
-  const fetchPendingAlertsAndReminders = async () => {
-    const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
-    if (!shopkeeperId) return;
-    try {
-      const alertsData = await getCustomerAlerts(shopkeeperId, 15);
-      const count = (alertsData.longPending && alertsData.longPending.length) || 0;
-      setPendingAlertCount(count);
-
-      const remindersData = await getCustomerReminders(shopkeeperId, 30);
-      if (remindersData && remindersData.remindersNeeded) {
-        setReminders(remindersData.remindersNeeded);
-      }
-
-      const todayRes = await getRemindersToday(shopkeeperId);
-      if (todayRes && todayRes.remindersToday) {
-        setTodayRemindersCount(todayRes.remindersToday.length);
-      }
-
-      const inventoryData = await getInventoryApi(shopkeeperId);
-      const lowStockItems = (inventoryData || []).filter(
-        (item) => item.isLowStock || Number(item.quantity) <= Number(item.lowStockThreshold || 5)
-      );
-      setLowStockCount(lowStockItems.length);
-    } catch (err) {
-      console.error('Failed to fetch alerts/reminders/inventory for home screen:', err);
-    }
-  };
-
   useEffect(() => {
-    fetchPendingAlertsAndReminders();
     updateOfflineCount();
 
     const checkAndAutoSync = async () => {
@@ -271,7 +211,6 @@ export default function HomeScreen() {
 
     const handleShopChanged = () => {
       resetToIdle();
-      fetchPendingAlertsAndReminders();
       updateOfflineCount();
     };
 
@@ -285,44 +224,6 @@ export default function HomeScreen() {
       window.removeEventListener('voice_udhar_shop_changed', handleShopChanged);
     };
   }, []);
-
-  const handleSendReminder = async (reminder) => {
-    if (!reminder) return;
-    if (reminder.phone && reminder.phone !== '0000000000') {
-      const cleanPhone = reminder.phone.replace(/\D/g, '');
-      const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(reminder.suggestedMessage)}`;
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
-    } else {
-      alert(`મોબાઇલ નંબર મળ્યો નથી. મેસેજ: "${reminder.suggestedMessage}"`);
-    }
-
-    try {
-      await markReminderSent(reminder.customerId);
-    } catch (err) {
-      console.error('Failed to mark reminder sent:', err);
-    }
-
-    // Move to next reminder in queue if available
-    if (currentReminderIndex < reminders.length - 1) {
-      setCurrentReminderIndex((prev) => prev + 1);
-    } else {
-      setIsReminderDismissed(true);
-    }
-  };
-
-  const handleLaterReminder = () => {
-    if (currentReminderIndex < reminders.length - 1) {
-      setCurrentReminderIndex((prev) => prev + 1);
-    } else {
-      setIsReminderDismissed(true);
-    }
-  };
-
-  // Query mode state
-  const [isQueryMode, setIsQueryMode] = useState(false);
-  const [queryResult, setQueryResult] = useState(null);
-  const [isSpeakingQuery, setIsSpeakingQuery] = useState(false);
 
   // Form state for Editing
   const [editCustomerName, setEditCustomerName] = useState('');
@@ -349,7 +250,7 @@ export default function HomeScreen() {
     }
   }, [screenState]);
 
-  // Quick consonant swap helper function for commonly confused Gujarati pairs
+  // Quick consonant swap helper function for Gujarati pairs
   const handleSwapConsonantPair = (charA, charB) => {
     if (!editCustomerName) {
       setEditCustomerName(charA);
@@ -360,15 +261,10 @@ export default function HomeScreen() {
     const hasB = editCustomerName.includes(charB);
 
     if (hasA) {
-      // Replace all occurrences of charA with charB
-      const updated = editCustomerName.replaceAll(charA, charB);
-      setEditCustomerName(updated);
+      setEditCustomerName(editCustomerName.replaceAll(charA, charB));
     } else if (hasB) {
-      // Replace all occurrences of charB with charA
-      const updated = editCustomerName.replaceAll(charB, charA);
-      setEditCustomerName(updated);
+      setEditCustomerName(editCustomerName.replaceAll(charB, charA));
     } else {
-      // If neither character is present, append charB
       setEditCustomerName(editCustomerName + charB);
     }
   };
@@ -378,7 +274,6 @@ export default function HomeScreen() {
   const audioChunksRef = useRef([]);
   const recordingStartTimeRef = useRef(null);
 
-  // Cleanup media recorder stream on unmount
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
@@ -402,7 +297,6 @@ export default function HomeScreen() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Determine mime type supported by browser
       let mimeType = 'audio/webm';
       if (!MediaRecorder.isTypeSupported('audio/webm')) {
         if (MediaRecorder.isTypeSupported('audio/mp4')) {
@@ -410,7 +304,7 @@ export default function HomeScreen() {
         } else if (MediaRecorder.isTypeSupported('audio/aac')) {
           mimeType = 'audio/aac';
         } else {
-          mimeType = ''; // Let browser choose default
+          mimeType = '';
         }
       }
 
@@ -425,13 +319,11 @@ export default function HomeScreen() {
       };
 
       mediaRecorder.onstop = async () => {
-        // Stop audio tracks
         stream.getTracks().forEach((track) => track.stop());
 
-        // Check minimum recording duration (500ms)
         const duration = Date.now() - (recordingStartTimeRef.current || 0);
         if (duration < 500) {
-          setErrorMessage('ખૂબ ટૂંકું રેકોર્ડિંગ (0.5 સેકન્ડથી ઓછું). / Recording too short (under 500ms).');
+          setErrorMessage('ખૂબ ટૂંકું રેકોર્ડિંગ (0.5 સેકન્ડથી ઓછું). / Recording too short.');
           setScreenState(SCREEN_STATE.ERROR);
           return;
         }
@@ -470,38 +362,22 @@ export default function HomeScreen() {
       reader.onloadend = async () => {
         try {
           const base64AudioWithHeader = reader.result;
-          // Extract plain base64 string
           const base64Audio = base64AudioWithHeader.split(',')[1] || base64AudioWithHeader;
 
-          // Check if offline
           if (!navigator.onLine) {
             const shopId = localStorage.getItem('voice_udhar_shop_id') || '';
             const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id') || '';
 
             await savePendingRecording({
-              audioBase64,
+              audioBase64: base64Audio,
               mimeType,
               timestamp: new Date().toISOString(),
               shopId,
               shopkeeperId,
-              isQueryMode,
             });
 
             await updateOfflineCount();
             setScreenState(SCREEN_STATE.OFFLINE_RECORDED);
-            return;
-          }
-
-          if (isQueryMode) {
-            const queryRes = await processVoiceQuery(base64Audio, mimeType);
-            if (!queryRes || queryRes.isQuery === false) {
-              setErrorMessage(queryRes?.message || 'આ ટ્રાન્ઝેક્શન છે. સામાન્ય નોંધણી મોડનો ઉપયોગ કરો. / This is a transaction, please use standard recording mode.');
-              setScreenState(SCREEN_STATE.ERROR);
-              return;
-            }
-
-            setQueryResult(queryRes);
-            setScreenState(SCREEN_STATE.QUERY_RESPONSE);
             return;
           }
 
@@ -551,7 +427,7 @@ export default function HomeScreen() {
             transcribedName,
             customerName: transcribedName,
             suggestedName,
-            selectedNameChoice: 'transcribed', // 'transcribed' or 'suggested'
+            selectedNameChoice: 'transcribed',
             nameConfidence,
             amount,
             txType,
@@ -561,7 +437,6 @@ export default function HomeScreen() {
             detectedLanguage,
           });
 
-          // Pre-fill edit fields
           setEditCustomerName(transcribedName);
           setEditAmount(amount.toString());
           setEditPhone(phone);
@@ -588,7 +463,7 @@ export default function HomeScreen() {
 
     const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
     if (!shopkeeperId) {
-      setErrorMessage('દુકાનદાર આઈડી મળ્યો નથી. ફરી લોગીન કરો. / Shopkeeper ID missing.');
+      setErrorMessage('દુકાનદાર આઈડી મળ્યો નથી. ફરી લોગીન કરો.');
       setScreenState(SCREEN_STATE.ERROR);
       return;
     }
@@ -598,13 +473,13 @@ export default function HomeScreen() {
       const numQty = Number(finalQty);
 
       if (!cleanItemName) {
-        setErrorMessage('મહેરબાની કરીને વસ્તુનું નામ દાખલ કરો. / Please enter item name.');
+        setErrorMessage('મહેરબાની કરીને વસ્તુનું નામ દાખલ કરો.');
         setScreenState(SCREEN_STATE.EDITING);
         return;
       }
 
       if (isNaN(numQty) || numQty < 0) {
-        setErrorMessage('મહેરબાની કરીને સાચો જથ્થો દાખલ કરો. / Please enter valid quantity.');
+        setErrorMessage('મહેરબાની કરીને સાચો જથ્થો દાખલ કરો.');
         setScreenState(SCREEN_STATE.EDITING);
         return;
       }
@@ -633,7 +508,7 @@ export default function HomeScreen() {
       }, 2000);
     } catch (err) {
       console.error('Error saving stock:', err);
-      setErrorMessage(err.message || 'સ્ટોક સેવ કરવામાં ભૂલ આવી / Failed to save stock');
+      setErrorMessage(err.message || 'સ્ટોક સેવ કરવામાં ભૂલ આવી');
       setScreenState(SCREEN_STATE.ERROR);
     }
   };
@@ -644,7 +519,7 @@ export default function HomeScreen() {
 
     const shopkeeperId = localStorage.getItem('voice_udhar_shopkeeper_id');
     if (!shopkeeperId) {
-      setErrorMessage('દુકાનદાર આઈડી મળ્યો નથી. ફરી લોગીન કરો. / Shopkeeper ID missing.');
+      setErrorMessage('દુકાનદાર આઈડી મળ્યો નથી. ફરી લોગીન કરો.');
       setScreenState(SCREEN_STATE.ERROR);
       return;
     }
@@ -655,18 +530,17 @@ export default function HomeScreen() {
       const numAmount = Number(finalAmount);
 
       if (!cleanName) {
-        setErrorMessage('મહેરબાની કરીને ગ્રાહકનું નામ દાખલ કરો. / Please enter customer name.');
+        setErrorMessage('મહેરબાની કરીને ગ્રાહકનું નામ દાખલ કરો.');
         setScreenState(SCREEN_STATE.EDITING);
         return;
       }
 
       if (isNaN(numAmount) || numAmount < 0) {
-        setErrorMessage('મહેરબાની કરીને સાચી રકમ દાખલ કરો. / Please enter valid amount.');
+        setErrorMessage('મહેરબાની કરીને સાચી રકમ દાખલ કરો.');
         setScreenState(SCREEN_STATE.EDITING);
         return;
       }
 
-      // Check if customer exists using fuzzy matching
       const existingCustomers = await getCustomers(shopkeeperId);
       const normClean = cleanName.toLowerCase();
 
@@ -680,7 +554,6 @@ export default function HomeScreen() {
         return false;
       });
 
-      // Create customer if not found, or update phone if user provided a real phone
       if (!customer) {
         customer = await createCustomer({
           shopkeeperId,
@@ -696,7 +569,6 @@ export default function HomeScreen() {
         });
       }
 
-      // Log transaction preserving original recording timestamp if available
       await logTransaction({
         shopkeeperId,
         customerId: customer.customerId,
@@ -720,7 +592,6 @@ export default function HomeScreen() {
         setStockSuccessNote('');
       }
 
-      // Automatically generate bill preview
       try {
         const billResult = await generateBillApi({
           shopkeeperId,
@@ -739,7 +610,6 @@ export default function HomeScreen() {
 
       setScreenState(SCREEN_STATE.SUCCESS);
 
-      // Auto reset or proceed to next sync item
       setTimeout(() => {
         if (isSyncing) {
           processNextSyncItem(syncQueue, currentSyncIndex + 1);
@@ -749,7 +619,7 @@ export default function HomeScreen() {
       }, 2000);
     } catch (err) {
       console.error('Error saving transaction:', err);
-      setErrorMessage(err.message || 'ટ્રાન્ઝેક્શન સેવ કરવામાં ભૂલ આવી / Failed to save transaction');
+      setErrorMessage(err.message || 'ટ્રાન્ઝેક્શન સેવ કરવામાં ભૂલ આવી');
       setScreenState(SCREEN_STATE.ERROR);
     }
   };
@@ -772,72 +642,7 @@ export default function HomeScreen() {
     }
   };
 
-  // SpeechSynthesis TTS helper logic
-  const speakText = async (text) => {
-    if (!('speechSynthesis' in window) || !text) return;
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    const getVoices = () => new Promise((resolve) => {
-      let voices = window.speechSynthesis.getVoices();
-      if (voices && voices.length > 0) return resolve(voices);
-      const handleVoices = () => {
-        voices = window.speechSynthesis.getVoices();
-        window.speechSynthesis.removeEventListener('voiceschanged', handleVoices);
-        resolve(voices || []);
-      };
-      window.speechSynthesis.addEventListener('voiceschanged', handleVoices);
-      setTimeout(() => resolve(window.speechSynthesis.getVoices() || []), 800);
-    });
-
-    const voices = await getVoices();
-    const guVoice = voices.find((v) => v.lang && v.lang.toLowerCase().includes('gu'));
-    const hiVoice = voices.find((v) => v.lang && v.lang.toLowerCase().includes('hi'));
-
-    if (guVoice) {
-      utterance.voice = guVoice;
-      utterance.lang = 'gu-IN';
-    } else if (hiVoice) {
-      utterance.voice = hiVoice;
-      utterance.lang = 'hi-IN';
-    } else {
-      utterance.lang = 'hi-IN';
-    }
-
-    utterance.rate = 0.9;
-    utterance.onend = () => setIsSpeakingQuery(false);
-    utterance.onerror = () => setIsSpeakingQuery(false);
-
-    setIsSpeakingQuery(true);
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Automatically trigger TTS when QUERY_RESPONSE state is reached
-  useEffect(() => {
-    if (screenState === SCREEN_STATE.QUERY_RESPONSE && queryResult?.answerText) {
-      speakText(queryResult.answerText);
-    }
-    return () => {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, [screenState, queryResult]);
-
-  const toggleQuerySpeech = () => {
-    if (isSpeakingQuery) {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      setIsSpeakingQuery(false);
-    } else if (queryResult?.answerText) {
-      speakText(queryResult.answerText);
-    }
-  };
-
   const resetToIdle = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    setIsSpeakingQuery(false);
     setIsSyncing(false);
     setSyncQueue([]);
     setCurrentSyncIndex(0);
@@ -845,7 +650,6 @@ export default function HomeScreen() {
     setScreenState(SCREEN_STATE.IDLE);
     setErrorMessage('');
     setParsedData(null);
-    setQueryResult(null);
     setGeneratedBill(null);
     setShowBillModal(false);
     setStockSuccessNote('');
@@ -857,8 +661,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <div className="main-content">
-      {/* PERSISTENT OFFLINE NETWORK STATUS BANNER */}
+    <div className="main-content" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', paddingBottom: '5rem' }}>
+      {/* PERSISTENT OFFLINE BANNER */}
       {!isOnline && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -888,7 +692,7 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* PENDING OFFLINE RECORDINGS QUEUED INDICATOR & MANUAL SYNC BUTTON */}
+      {/* PENDING OFFLINE QUEUE INDICATOR */}
       {pendingOfflineCount > 0 && screenState === SCREEN_STATE.IDLE && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -898,7 +702,7 @@ export default function HomeScreen() {
             border: '1px solid rgba(240, 198, 116, 0.4)',
             borderRadius: 'var(--radius-md)',
             padding: '0.75rem 0.9rem',
-            marginBottom: '1rem',
+            marginBottom: '1.25rem',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -945,262 +749,12 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* TODAY REMINDERS QUEUE BANNER / CARD */}
-      {!isTodayRemindersDismissed && todayRemindersCount > 0 && screenState === SCREEN_STATE.IDLE && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          onClick={() => navigate('/reminders/today')}
-          style={{
-            backgroundColor: 'rgba(124, 58, 237, 0.15)',
-            border: '1px solid rgba(240, 198, 116, 0.5)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.85rem 1rem',
-            marginBottom: '1rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer',
-            boxShadow: '0 4px 15px rgba(124, 58, 237, 0.2)',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flex: 1 }}>
-            <Sparkles size={22} color="#F0C674" style={{ flexShrink: 0 }} />
-            <div>
-              <div style={{ fontSize: '0.95rem', color: '#F8FAFC', fontWeight: '800' }}>
-                📋 આજે {todayRemindersCount} રિમાઇન્ડર મોકલવાના છે
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: '500' }}>
-                {todayRemindersCount} {todayRemindersCount === 1 ? 'reminder' : 'reminders'} to send today — ટેપ કરીને જુઓ / Tap to view
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <ChevronRight size={18} color="#F0C674" />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsTodayRemindersDismissed(true);
-              }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#94A3B8',
-                padding: '0.3rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '6px',
-              }}
-              title="Dismiss card"
-              aria-label="Dismiss card"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {/* LOW STOCK ALERT BANNER */}
-      {!isStockAlertDismissed && lowStockCount > 0 && screenState === SCREEN_STATE.IDLE && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          onClick={() => navigate('/inventory')}
-          style={{
-            backgroundColor: 'rgba(245, 158, 11, 0.15)',
-            border: '1px solid rgba(245, 158, 11, 0.4)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.75rem 0.9rem',
-            marginBottom: '1rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer',
-            boxShadow: '0 4px 15px rgba(245, 158, 11, 0.15)',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1 }}>
-            <Package size={20} color="#FDE68A" style={{ flexShrink: 0 }} />
-            <div style={{ fontSize: '0.9rem', color: '#F8FAFC', fontWeight: '700' }}>
-              ⚠️ {lowStockCount} વસ્તુઓ ખતમ થવાની છે
-              <span style={{ display: 'block', fontSize: '0.75rem', color: '#FDE68A', fontWeight: '500' }}>
-                {lowStockCount} {lowStockCount === 1 ? 'item is' : 'items are'} running low on stock
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <ChevronRight size={18} color="#FDE68A" />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsStockAlertDismissed(true);
-              }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#94A3B8',
-                padding: '0.3rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '6px',
-              }}
-              title="Dismiss banner"
-              aria-label="Dismiss banner"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {/* URGENT PENDING UDHAAR ALERT BANNER */}
-      {!isAlertBannerDismissed && pendingAlertCount > 0 && screenState === SCREEN_STATE.IDLE && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          onClick={() => navigate('/alerts')}
-          style={{
-            backgroundColor: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid rgba(239, 68, 68, 0.4)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.75rem 0.9rem',
-            marginBottom: '1rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer',
-            boxShadow: '0 4px 15px rgba(239, 68, 68, 0.15)',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1 }}>
-            <AlertTriangle size={20} color="#FCA5A5" style={{ flexShrink: 0 }} />
-            <div style={{ fontSize: '0.9rem', color: '#F8FAFC', fontWeight: '700' }}>
-              ⚠️ {pendingAlertCount} ગ્રાહકોનું ઉધાર 15 દિવસથી બાકી છે
-              <span style={{ display: 'block', fontSize: '0.75rem', color: '#FDA4AF', fontWeight: '500' }}>
-                {pendingAlertCount} {pendingAlertCount === 1 ? 'customer has' : 'customers have'} udhaar pending for 15+ days
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <ChevronRight size={18} color="#FCA5A5" />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsAlertBannerDismissed(true);
-              }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#94A3B8',
-                padding: '0.3rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '6px',
-              }}
-              title="Dismiss banner"
-              aria-label="Dismiss banner"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {/* SMART PROACTIVE REMINDER SUGGESTION CARD */}
-      {!isReminderDismissed && reminders.length > 0 && currentReminderIndex < reminders.length && screenState === SCREEN_STATE.IDLE && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{
-            backgroundColor: 'rgba(124, 58, 237, 0.15)',
-            border: '1px solid rgba(240, 198, 116, 0.4)',
-            borderRadius: 'var(--radius-md)',
-            padding: '1rem',
-            marginBottom: '1rem',
-            backdropFilter: 'blur(10px)',
-            boxShadow: '0 4px 15px rgba(124, 58, 237, 0.2)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', marginBottom: '0.75rem' }}>
-            <Sparkles size={22} color="#F0C674" style={{ flexShrink: 0, marginTop: '2px' }} />
-            <div>
-              <div style={{ fontSize: '0.95rem', color: '#F8FAFC', fontWeight: '800', lineHeight: '1.3' }}>
-                💡 {reminders[currentReminderIndex].name}ને {reminders[currentReminderIndex].daysSinceLastTransaction} દિવસથી યાદ નથી અપાવ્યું. Reminder મોકલવો છે?
-              </div>
-              <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginTop: '0.2rem', fontStyle: 'italic' }}>
-                "{reminders[currentReminderIndex].suggestedMessage}"
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.6rem' }}>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => handleSendReminder(reminders[currentReminderIndex])}
-              style={{
-                flex: 1,
-                padding: '0.55rem 0.8rem',
-                borderRadius: '8px',
-                border: '1px solid rgba(34, 197, 94, 0.5)',
-                backgroundColor: 'rgba(34, 197, 94, 0.2)',
-                color: '#4ADE80',
-                fontWeight: '700',
-                fontSize: '0.875rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.35rem',
-              }}
-            >
-              <MessageSquare size={16} />
-              હા, મોકલો / Yes, Send
-            </motion.button>
-
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={handleLaterReminder}
-              style={{
-                padding: '0.55rem 0.9rem',
-                borderRadius: '8px',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                color: '#94A3B8',
-                fontWeight: '600',
-                fontSize: '0.875rem',
-                cursor: 'pointer',
-              }}
-            >
-              પછી / Later
-            </motion.button>
-          </div>
-        </motion.div>
-      )}
-
       {/* BILL PREVIEW MODAL */}
       {showBillModal && generatedBill && (
         <BillModal billData={generatedBill} onClose={handleCloseBillModal} />
       )}
 
-      {/* OFFLINE RECORDED CONFIRMATION STATE */}
+      {/* OFFLINE RECORDED CONFIRMATION */}
       {screenState === SCREEN_STATE.OFFLINE_RECORDED && (
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
@@ -1225,7 +779,7 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* 1. PERMISSION DENIED STATE */}
+      {/* PERMISSION DENIED STATE */}
       {screenState === SCREEN_STATE.PERMISSION_DENIED && (
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="confirmation-card" style={{ textAlign: 'center', borderColor: 'rgba(244, 63, 94, 0.4)' }}>
           <div style={{ color: '#f43f5e', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
@@ -1236,8 +790,6 @@ export default function HomeScreen() {
           </h2>
           <p style={{ color: '#94A3B8', fontSize: '1rem', marginBottom: '1.5rem', textAlign: 'center' }}>
             અવાજ રેકોર્ડ કરવા માટે બ્રાઉઝર સેટિંગ્સમાંથી માઇક્રોફોન પરમિશન આપો.
-            <br />
-            Please allow microphone access in your browser settings to record voice.
           </p>
           <button className="btn-primary" onClick={startRecording}>
             <RotateCcw size={20} />
@@ -1265,11 +817,11 @@ export default function HomeScreen() {
           gap: '0.5rem',
         }}>
           <Sparkles size={18} color="#F0C674" />
-          <span>સિંક થઈ રહ્યું છે... {currentSyncIndex + 1}/{syncQueue.length} (Syncing... {currentSyncIndex + 1}/{syncQueue.length})</span>
+          <span>સિંક થઈ રહ્યું છે... {currentSyncIndex + 1}/{syncQueue.length}</span>
         </div>
       )}
 
-      {/* 2. ERROR STATE ("Sunai nahi diya, phir se bolo") */}
+      {/* ERROR STATE */}
       {screenState === SCREEN_STATE.ERROR && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card" style={{ textAlign: 'center' }}>
           <div className="error-banner">
@@ -1304,39 +856,9 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* Mode Toggle Button */}
+      {/* MAIN MIC HERO VIEW (IDLE or RECORDING) */}
       {(screenState === SCREEN_STATE.IDLE || screenState === SCREEN_STATE.RECORDING) && (
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
-          <button
-            type="button"
-            onClick={() => setIsQueryMode(!isQueryMode)}
-            disabled={screenState === SCREEN_STATE.RECORDING}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.6rem 1.2rem',
-              borderRadius: '24px',
-              border: isQueryMode ? '1px solid rgba(240, 198, 116, 0.6)' : '1px solid rgba(255, 255, 255, 0.15)',
-              backgroundColor: isQueryMode ? 'rgba(240, 198, 116, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-              color: isQueryMode ? '#F0C674' : '#94A3B8',
-              fontSize: '0.95rem',
-              fontWeight: '700',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              backdropFilter: 'blur(8px)',
-              boxShadow: isQueryMode ? '0 4px 15px rgba(240, 198, 116, 0.2)' : 'none'
-            }}
-          >
-            <HelpCircle size={18} color={isQueryMode ? '#F0C674' : '#94A3B8'} />
-            <span>{isQueryMode ? 'પ્રશ્ન મોડ (Active) / Question Mode' : 'પ્રશ્ન પૂછો / Ask a Question'}</span>
-          </button>
-        </div>
-      )}
-
-      {/* 3. IDLE or RECORDING STATE */}
-      {(screenState === SCREEN_STATE.IDLE || screenState === SCREEN_STATE.RECORDING) && (
-        <div className="mic-container">
+        <div className="mic-container" style={{ margin: 'auto 0' }}>
           <div className="mic-hero-wrapper">
             {screenState === SCREEN_STATE.RECORDING && (
               <>
@@ -1370,11 +892,12 @@ export default function HomeScreen() {
               className={`mic-button ${screenState === SCREEN_STATE.RECORDING ? 'recording' : ''}`}
               onClick={screenState === SCREEN_STATE.RECORDING ? stopRecording : startRecording}
               aria-label={screenState === SCREEN_STATE.RECORDING ? 'Stop recording' : 'Start recording'}
+              style={{ width: '130px', height: '130px' }}
             >
               {screenState === SCREEN_STATE.RECORDING ? (
-                <Square size={48} fill="currentColor" />
+                <Square size={52} fill="currentColor" />
               ) : (
-                <Mic size={56} color="#ffffff" />
+                <Mic size={64} color="#ffffff" />
               )}
             </motion.button>
           </div>
@@ -1383,24 +906,25 @@ export default function HomeScreen() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="mic-status-label"
+            style={{ fontSize: '1.3rem', marginTop: '1.25rem', fontWeight: '800' }}
           >
             {screenState === SCREEN_STATE.RECORDING ? (
               <span style={{ color: '#F43F5E' }}>રેકોર્ડિંગ ચાલુ છે... (Recording...)</span>
             ) : (
-              <span>બોલવા માટે માઇક પર દબાવો</span>
+              <span>બોલવા માટે દબાવો</span>
             )}
           </motion.div>
-          <div className="mic-status-sub">
+          <div className="mic-status-sub" style={{ fontSize: '0.9rem', marginTop: '0.25rem', color: '#94A3B8' }}>
             {screenState === SCREEN_STATE.RECORDING
               ? 'બંધ કરવા ફરી દબાવો (Tap again to stop)'
-              : 'Tap mic once to start recording'}
+              : 'Tap mic once to speak'}
           </div>
         </div>
       )}
 
-      {/* 4. PROCESSING STATE ("Samajh raha hu...") */}
+      {/* PROCESSING STATE */}
       {screenState === SCREEN_STATE.PROCESSING && (
-        <div className="mic-container">
+        <div className="mic-container" style={{ margin: 'auto 0' }}>
           <motion.div
             animate={{ scale: [1, 1.1, 1], rotate: [0, 180, 360] }}
             transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
@@ -1425,7 +949,7 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* 5. CONFIRMATION CARD STATE */}
+      {/* CONFIRMATION CARD STATE */}
       {screenState === SCREEN_STATE.CONFIRMATION && parsedData && (
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -1482,28 +1006,12 @@ export default function HomeScreen() {
                     ✨ નવો ગ્રાહક / New Customer
                   </span>
                 )}
-                {parsedData.detectedLanguage && parsedData.detectedLanguage !== 'gujarati' && (
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      padding: '0.2rem 0.55rem',
-                      borderRadius: '12px',
-                      backgroundColor: 'rgba(240, 198, 116, 0.15)',
-                      color: '#F0C674',
-                      border: '1px solid rgba(240, 198, 116, 0.35)',
-                      fontWeight: '700',
-                    }}
-                  >
-                    🌐 {parsedData.detectedLanguage === 'hindi' ? 'હિન્દી' : parsedData.detectedLanguage === 'english' ? 'English' : 'મિક્સ'}
-                  </span>
-                )}
               </div>
 
-              {/* Explicit customer choice prompt when a close match is suggested */}
               {parsedData.suggestedName && parsedData.suggestedName !== (parsedData.transcribedName || parsedData.customerName) && (
                 <div style={{ marginTop: '0.85rem', padding: '0.85rem', backgroundColor: 'rgba(240, 198, 116, 0.12)', borderRadius: '10px', border: '1px solid rgba(240, 198, 116, 0.35)', textAlign: 'left' }}>
                   <div style={{ fontSize: '0.9rem', color: '#F0C674', marginBottom: '0.6rem', fontWeight: '700', lineHeight: '1.3' }}>
-                    Maine સાંભળ્યું: <span style={{ color: '#F8FAFC', textDecoration: 'underline' }}>{parsedData.transcribedName || parsedData.customerName}</span>. શું આ '<span style={{ color: '#4ADE80' }}>{parsedData.suggestedName}</span>' છે? (તમારો હાલનો ગ્રાહક)
+                    Maine સાંભળ્યું: <span style={{ color: '#F8FAFC', textDecoration: 'underline' }}>{parsedData.transcribedName || parsedData.customerName}</span>. શું આ '<span style={{ color: '#4ADE80' }}>{parsedData.suggestedName}</span>' છે?
                   </div>
                   <div style={{ display: 'flex', gap: '0.6rem', flexDirection: 'column' }}>
                     <button
@@ -1528,7 +1036,7 @@ export default function HomeScreen() {
                         justifyContent: 'space-between',
                       }}
                     >
-                      <span>ના, {parsedData.transcribedName || parsedData.customerName} જ છે / No, it's {parsedData.transcribedName || parsedData.customerName}</span>
+                      <span>ના, {parsedData.transcribedName || parsedData.customerName} જ છે</span>
                       {parsedData.selectedNameChoice === 'transcribed' && <Check size={16} color="#F0C674" />}
                     </button>
 
@@ -1553,7 +1061,7 @@ export default function HomeScreen() {
                         justifyContent: 'space-between',
                       }}
                     >
-                      <span>હા, {parsedData.suggestedName} છે / Yes, it's {parsedData.suggestedName}</span>
+                      <span>હા, {parsedData.suggestedName} છે</span>
                       {parsedData.selectedNameChoice === 'suggested' && <Check size={16} color="#4ADE80" />}
                     </button>
                   </div>
@@ -1578,7 +1086,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <AlertTriangle size={14} color="#F43F5E" />
-                  <span>ફોન નંબર મળ્યો નથી (ઉમેરવા ટેપ કરો) / Phone number not captured, tap to add</span>
+                  <span>ફોન નંબર ઉમેરવા ટેપ કરો / Tap to add phone</span>
                 </div>
               ) : (
                 <div style={{ marginTop: '0.4rem', fontSize: '0.85rem', color: '#94A3B8' }}>
@@ -1612,7 +1120,7 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* 6. EDITING STATE */}
+      {/* EDITING STATE */}
       {screenState === SCREEN_STATE.EDITING && (
         <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="confirmation-card">
           <h2 style={{ fontSize: '1.3rem', marginBottom: '1.25rem', color: '#F8FAFC', textAlign: 'center' }}>
@@ -1625,8 +1133,7 @@ export default function HomeScreen() {
             <form onSubmit={handleSaveEdit}>
               <div className="form-group">
                 <label className="form-label" htmlFor="editStockItem">
-                  વસ્તુનું નામ
-                  <span className="form-sublabel"> Item Name</span>
+                  વસ્તુનું નામ / Item Name
                 </label>
                 <input
                   id="editStockItem"
@@ -1641,8 +1148,7 @@ export default function HomeScreen() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">
                   <label className="form-label" htmlFor="editStockQty">
-                    જથ્થો
-                    <span className="form-sublabel"> Quantity</span>
+                    જથ્થો / Quantity
                   </label>
                   <input
                     id="editStockQty"
@@ -1658,8 +1164,7 @@ export default function HomeScreen() {
 
                 <div className="form-group">
                   <label className="form-label" htmlFor="editStockUnit">
-                    એકમ
-                    <span className="form-sublabel"> Unit</span>
+                    એકમ / Unit
                   </label>
                   <select
                     id="editStockUnit"
@@ -1696,8 +1201,7 @@ export default function HomeScreen() {
             <form onSubmit={handleSaveEdit}>
               <div className="form-group">
                 <label className="form-label" htmlFor="editCustomer">
-                  ગ્રાહકનું નામ
-                  <span className="form-sublabel"> Customer Name</span>
+                  ગ્રાહકનું નામ / Customer Name
                 </label>
                 <input
                   ref={editCustomerNameInputRef}
@@ -1709,7 +1213,6 @@ export default function HomeScreen() {
                   required
                 />
 
-                {/* Quick consonant swap shortcut buttons */}
                 <div style={{ marginTop: '0.6rem' }}>
                   <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginBottom: '0.3rem', fontWeight: '500' }}>
                     ⚡ ઝડપી અક્ષર બદલો (Quick Swap):
@@ -1737,7 +1240,6 @@ export default function HomeScreen() {
                           cursor: 'pointer',
                           fontWeight: '600',
                         }}
-                        title={`Swap ${a} ↔ ${b}`}
                       >
                         {a} ↔ {b}
                       </button>
@@ -1748,8 +1250,7 @@ export default function HomeScreen() {
 
               <div className="form-group">
                 <label className="form-label" htmlFor="editPhone">
-                  મોબાઇલ નંબર
-                  <span className="form-sublabel"> Phone Number (Optional)</span>
+                  મોબાઇલ નંબર / Phone Number
                 </label>
                 <input
                   id="editPhone"
@@ -1763,8 +1264,7 @@ export default function HomeScreen() {
 
               <div className="form-group">
                 <label className="form-label" htmlFor="editAmount">
-                  રકમ (₹)
-                  <span className="form-sublabel"> Amount in Rupees</span>
+                  રકમ (₹) / Amount
                 </label>
                 <input
                   id="editAmount"
@@ -1780,8 +1280,7 @@ export default function HomeScreen() {
 
               <div className="form-group">
                 <label className="form-label" htmlFor="editTxType">
-                  પ્રકાર
-                  <span className="form-sublabel"> Action Type</span>
+                  પ્રકાર / Type
                 </label>
                 <select
                   id="editTxType"
@@ -1814,9 +1313,9 @@ export default function HomeScreen() {
         </motion.div>
       )}
 
-      {/* 7. SAVING STATE */}
+      {/* SAVING STATE */}
       {screenState === SCREEN_STATE.SAVING && (
-        <div className="mic-container">
+        <div className="mic-container" style={{ margin: 'auto 0' }}>
           <Loader2 className="animate-spin" size={52} color="#C026D3" />
           <div className="mic-status-label" style={{ marginTop: '1rem' }}>
             સેવ થઈ રહ્યું છે...
@@ -1825,13 +1324,14 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* 8. SUCCESS STATE ("Save ho gaya!") */}
+      {/* SUCCESS STATE */}
       {screenState === SCREEN_STATE.SUCCESS && (
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           className="mic-container"
+          style={{ margin: 'auto 0' }}
         >
           <motion.div
             initial={{ scale: 0 }}
@@ -1879,77 +1379,6 @@ export default function HomeScreen() {
           <p style={{ color: '#94A3B8', fontSize: '1rem', textAlign: 'center', fontWeight: '500' }}>
             {parsedData?.isStock ? 'સ્ટોક સફળતાપૂર્વક અપડેટ થયો છે.' : 'ટ્રાન્ઝેક્શન સફળતાપૂર્વક ઉમેરાઈ ગયું છે.'}
           </p>
-        </motion.div>
-      )}
-
-      {/* 9. QUERY RESPONSE CARD STATE */}
-      {screenState === SCREEN_STATE.QUERY_RESPONSE && queryResult && (
-        <motion.div
-          initial={{ opacity: 0, y: 25 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-          className="confirmation-card"
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#F0C674', fontWeight: '800', fontSize: '1.15rem' }}>
-            <MessageSquare size={24} />
-            <span>જવાબ / Answer</span>
-          </div>
-
-          <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', padding: '1.25rem', border: '1px solid rgba(240, 198, 116, 0.25)', marginBottom: '1.25rem', textAlign: 'center', maxHeight: '300px', overflowY: 'auto' }}>
-            <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#F8FAFC', marginBottom: '0.5rem', lineHeight: '1.4', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
-              {queryResult.answerText}
-            </div>
-            {queryResult.answerTextEnglish && (
-              <div style={{ fontSize: '0.95rem', color: '#94A3B8', fontWeight: '500', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
-                {queryResult.answerTextEnglish}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={toggleQuerySpeech}
-              style={{
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid rgba(240, 198, 116, 0.3)',
-                background: isSpeakingQuery
-                  ? 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)'
-                  : 'linear-gradient(135deg, #7C3AED 0%, #C026D3 100%)',
-                color: '#ffffff',
-                fontSize: '1.1rem',
-                fontWeight: '700',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                cursor: 'pointer',
-              }}
-            >
-              {isSpeakingQuery ? (
-                <>
-                  <VolumeX size={22} />
-                  <span>અવાજ બંધ કરો / Stop Voice</span>
-                </>
-              ) : (
-                <>
-                  <Volume2 size={22} color="#F0C674" />
-                  <span>ફરી સાંભળો / Read Answer</span>
-                </>
-              )}
-            </motion.button>
-
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              className="btn-primary"
-              onClick={resetToIdle}
-            >
-              <RotateCcw size={20} />
-              <span>પાછા બોલો / Ask Again</span>
-            </motion.button>
-          </div>
         </motion.div>
       )}
     </div>

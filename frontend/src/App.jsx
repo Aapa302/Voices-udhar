@@ -11,6 +11,7 @@ import AlertsScreen from './pages/AlertsScreen';
 import SummaryScreen from './pages/SummaryScreen';
 import InventoryScreen from './pages/InventoryScreen';
 import TodayRemindersScreen from './pages/TodayRemindersScreen';
+import MoreScreen from './pages/MoreScreen';
 import { Loader2, Sparkles } from 'lucide-react';
 
 function AnimatedRoutes() {
@@ -28,18 +29,26 @@ function AnimatedRoutes() {
           }
         />
         <Route
-          path="/inventory"
-          element={
-            <PageWrapper>
-              <InventoryScreen />
-            </PageWrapper>
-          }
-        />
-        <Route
           path="/customers"
           element={
             <PageWrapper>
               <CustomersScreen />
+            </PageWrapper>
+          }
+        />
+        <Route
+          path="/more"
+          element={
+            <PageWrapper>
+              <MoreScreen />
+            </PageWrapper>
+          }
+        />
+        <Route
+          path="/inventory"
+          element={
+            <PageWrapper>
+              <InventoryScreen />
             </PageWrapper>
           }
         />
