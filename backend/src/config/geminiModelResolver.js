@@ -7,6 +7,15 @@ const DEFAULT_CANDIDATE_MODELS = [
   'gemini-1.5-pro',
 ];
 
+const EXCLUDED_MODEL_PATTERNS = [
+  'deep-research',
+  'robotics',
+  'computer-use',
+  'image',
+  'clip',
+  'antigravity',
+];
+
 let cachedCandidateModels = null;
 let isHealthLoaded = false;
 
@@ -158,8 +167,14 @@ function selectCandidateModels(models) {
     return DEFAULT_CANDIDATE_MODELS;
   }
 
-  // Filter models that support generateContent
+  // Filter models that support generateContent and are not specialized/incompatible variants
   const generateModels = models.filter((m) => {
+    const rawName = (m.name || '').toLowerCase();
+    const cleanName = rawName.replace(/^models\//, '');
+
+    const isExcluded = EXCLUDED_MODEL_PATTERNS.some((pattern) => cleanName.includes(pattern));
+    if (isExcluded) return false;
+
     const methods = m.supportedGenerationMethods || m.supported_generation_methods || [];
     return Array.isArray(methods) && methods.includes('generateContent');
   });
@@ -262,23 +277,50 @@ async function resolveGeminiModel(apiKeyOverride) {
  * Helper to determine if an error is non-transient (e.g., auth, bad request).
  * Retrying with a different model won't help non-transient errors.
  */
-function isNonTransientError(error) {
+function isModelIncompatibleError(error) {
   if (!error) return false;
-  const status = error.status || error.statusCode;
+  const status = Number(error.status || error.statusCode);
   const message = (error.message || '').toLowerCase();
 
-  // HTTP status codes that indicate client error / non-transient issue
-  if (status && [400, 401, 403, 404].includes(Number(status))) {
+  if (status === 400 || status === 404) {
     return true;
   }
 
-  // Common non-transient error phrases
+  if (
+    message.includes('generatecontent') ||
+    message.includes('not supported') ||
+    message.includes('unsupported') ||
+    message.includes('interactions api') ||
+    message.includes('different api') ||
+    message.includes('invalid_argument') ||
+    message.includes('invalid argument')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Helper to determine if an error is a non-transient global error (e.g., invalid API key, auth error).
+ * Retrying with a different model won't help global auth/permission errors.
+ */
+function isNonTransientError(error) {
+  if (!error) return false;
+  const status = Number(error.status || error.statusCode);
+  const message = (error.message || '').toLowerCase();
+
+  // HTTP status codes that indicate global auth or permission failures
+  if (status && [401, 403].includes(status)) {
+    return true;
+  }
+
+  // Common non-transient global error phrases
   if (
     message.includes('api_key_invalid') ||
     message.includes('invalid api key') ||
     message.includes('unauthorized') ||
-    message.includes('permission denied') ||
-    message.includes('invalid_argument')
+    message.includes('permission denied')
   ) {
     return true;
   }
@@ -382,6 +424,10 @@ async function generateWithFallback(genAI, generateContentFn, options = {}) {
         throw error;
       }
 
+      if (isModelIncompatibleError(error)) {
+        console.warn(`[Gemini] Model ${modelName} is incompatible or returned 400 Bad Request (${error.message || error}). Marked as failed, falling back to next candidate model.`);
+      }
+
       if (i < candidatesToAttempt.length - 1) {
         console.log(`[Gemini Retry] Retrying request with next fallback model candidate (${candidatesToAttempt[i + 1]})...`);
         if (retryDelayMs > 0) {
@@ -412,7 +458,9 @@ module.exports = {
   generateWithFallback,
   parseVersion,
   compareVersions,
+  isModelIncompatibleError,
   isNonTransientError,
+  EXCLUDED_MODEL_PATTERNS,
   resetCache,
   resetModelFailureCounts,
   getModelFailureCount,
