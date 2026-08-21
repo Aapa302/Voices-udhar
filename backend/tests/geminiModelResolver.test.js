@@ -6,7 +6,9 @@ const {
   generateWithFallback,
   parseVersion,
   compareVersions,
+  isModelIncompatibleError,
   isNonTransientError,
+  EXCLUDED_MODEL_PATTERNS,
   resetCache,
   resetModelFailureCounts,
   getModelFailureCount,
@@ -74,6 +76,28 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       ]);
     });
 
+    test('excludes specialized/incompatible models matching excluded patterns', () => {
+      const models = [
+        { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/deep-research-max-preview-04-2026', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-robotics-experimental', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-computer-use-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/imagen-3.0-generate-002', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/clip-vit-base', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/antigravity-preview', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-1.5-pro', supportedGenerationMethods: ['generateContent'] },
+      ];
+
+      const candidates = selectCandidateModels(models);
+      expect(candidates).toEqual(['gemini-2.5-flash', 'gemini-1.5-pro']);
+      expect(candidates).not.toContain('deep-research-max-preview-04-2026');
+      expect(candidates).not.toContain('gemini-robotics-experimental');
+      expect(candidates).not.toContain('gemini-computer-use-flash');
+      expect(candidates).not.toContain('imagen-3.0-generate-002');
+      expect(candidates).not.toContain('clip-vit-base');
+      expect(candidates).not.toContain('antigravity-preview');
+    });
+
     test('returns default candidate models if list is empty or no model supports generateContent', () => {
       expect(selectCandidateModels([])).toEqual(DEFAULT_CANDIDATE_MODELS);
       expect(
@@ -137,15 +161,23 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
     });
   });
 
-  describe('isNonTransientError', () => {
-    test('identifies non-transient client/auth/validation errors', () => {
-      expect(isNonTransientError({ status: 400 })).toBe(true);
+  describe('isModelIncompatibleError and isNonTransientError', () => {
+    test('identifies model incompatibility errors (400, 404, unsupported generateContent API)', () => {
+      expect(isModelIncompatibleError({ status: 400, message: 'Model does not support generateContent' })).toBe(true);
+      expect(isModelIncompatibleError({ status: 404, message: 'Model not found' })).toBe(true);
+      expect(isModelIncompatibleError({ message: 'Requires different Interactions API' })).toBe(true);
+      expect(isModelIncompatibleError({ message: 'invalid_argument' })).toBe(true);
+
+      expect(isModelIncompatibleError({ status: 503 })).toBe(false);
+    });
+
+    test('identifies global auth non-transient errors', () => {
       expect(isNonTransientError({ status: 401 })).toBe(true);
       expect(isNonTransientError({ status: 403 })).toBe(true);
-      expect(isNonTransientError({ status: 404 })).toBe(true);
       expect(isNonTransientError({ message: 'API_KEY_INVALID' })).toBe(true);
 
-      // Transient errors
+      // Status 400 is model-specific incompatibility, not global auth error
+      expect(isNonTransientError({ status: 400 })).toBe(false);
       expect(isNonTransientError({ status: 503 })).toBe(false);
       expect(isNonTransientError({ status: 429 })).toBe(false);
       expect(isNonTransientError({ status: 500 })).toBe(false);
@@ -211,6 +243,28 @@ describe('geminiModelResolver with candidate list & automatic fallback', () => {
       expect(mockGenAI.getGenerativeModel).toHaveBeenCalledTimes(1);
 
       warnSpy.mockRestore();
+    });
+
+    test('marks model as failed and falls back to next candidate on 400 Bad Request model incompatibility error', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const badRequestErr = { status: 400, message: 'Model deep-research does not support generateContent' };
+      const generateFn = jest
+        .fn()
+        .mockRejectedValueOnce(badRequestErr)
+        .mockResolvedValueOnce({ response: { text: () => 'Fallback Model OK' } });
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await generateWithFallback(mockGenAI, generateFn, { retryDelayMs: 0 });
+
+      expect(result.response.text()).toBe('Fallback Model OK');
+      expect(generateFn).toHaveBeenCalledTimes(2);
+      expect(getModelFailureCount(DEFAULT_CANDIDATE_MODELS[0])).toBe(1);
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
     });
 
     test('throws last error if all candidate models fail transiently', async () => {
