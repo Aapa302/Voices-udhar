@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { PieChart, Package, Bell, HelpCircle, Settings, ChevronRight, Mic, Volume2, VolumeX, Loader2, RotateCcw } from 'lucide-react';
-import { processVoiceQuery } from '../api/voice';
+import { motion } from 'framer-motion';
+import { PieChart, Package, Bell, Settings, ChevronRight } from 'lucide-react';
 import { getCustomerAlerts, getCustomerReminders } from '../api/customers';
 import { getInventoryApi } from '../api/inventory';
 
@@ -12,14 +11,6 @@ export default function MoreScreen() {
   // Urgent alerts state
   const [hasUrgentAlerts, setHasUrgentAlerts] = useState(false);
   const [alertDetails, setAlertDetails] = useState('');
-
-  // Voice Query Modal State
-  const [showVoiceQueryModal, setShowVoiceQueryModal] = useState(false);
-  const [isRecordingQuery, setIsRecordingQuery] = useState(false);
-  const [isProcessingQuery, setIsProcessingQuery] = useState(false);
-  const [queryResult, setQueryResult] = useState(null);
-  const [queryError, setQueryError] = useState('');
-  const [isSpeakingQuery, setIsSpeakingQuery] = useState(false);
 
   // Check urgent items for badge & subtext
   useEffect(() => {
@@ -60,7 +51,7 @@ export default function MoreScreen() {
     checkUrgentItems();
   }, []);
 
-  // Menu items list
+  // Menu items list (Ask a Question removed since it moved back to Home screen)
   const menuItems = [
     {
       id: 'summary',
@@ -94,16 +85,6 @@ export default function MoreScreen() {
       onClick: () => navigate('/alerts'),
     },
     {
-      id: 'ask',
-      title: 'પ્રશ્ન પૂછો / Ask a Question',
-      subtitle: 'બોલીને હિસાબ અથવા સ્ટોક પૂછો / Ask questions via voice',
-      icon: HelpCircle,
-      iconBg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(14, 165, 233, 0.25) 100%)',
-      iconColor: '#60A5FA',
-      borderAccent: 'rgba(96, 165, 250, 0.3)',
-      onClick: () => setShowVoiceQueryModal(true),
-    },
-    {
       id: 'settings',
       title: 'સેટિંગ્સ / Settings',
       subtitle: 'UPI ID, દુકાન મેનેજમેન્ટ, ડેટા એક્સપોર્ટ / Settings & Data export',
@@ -112,7 +93,6 @@ export default function MoreScreen() {
       iconColor: '#F0C674',
       borderAccent: 'rgba(240, 198, 116, 0.3)',
       onClick: () => {
-        // Trigger settings modal via custom event or header trigger
         const settingsBtn = document.querySelector('button[title="સેટિંગ્સ / Settings"]');
         if (settingsBtn) {
           settingsBtn.click();
@@ -122,90 +102,6 @@ export default function MoreScreen() {
       },
     },
   ];
-
-  // Voice Query Handling
-  const mediaRecorderRef = React.useRef(null);
-  const audioChunksRef = React.useRef([]);
-
-  const startQueryRecording = async () => {
-    setQueryError('');
-    setQueryResult(null);
-    audioChunksRef.current = [];
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
-
-        setIsProcessingQuery(true);
-        try {
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            const base64Audio = (reader.result || '').split(',')[1] || reader.result;
-            const res = await processVoiceQuery(base64Audio, mediaRecorder.mimeType || 'audio/webm');
-            if (res && res.answerText) {
-              setQueryResult(res);
-            } else {
-              setQueryError('જવાબ મળ્યો નથી, ફરી પૂછો / Could not understand query');
-            }
-            setIsProcessingQuery(false);
-          };
-        } catch (err) {
-          console.error('Error handling query audio:', err);
-          setQueryError(err.message || 'પ્રશ્ન પ્રોસેસ કરવામાં ભૂલ આવી');
-          setIsProcessingQuery(false);
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecordingQuery(true);
-    } catch (err) {
-      console.error('Mic error in query modal:', err);
-      setQueryError('માઇક્રોફોન મંજૂરી મેળવવામાં ભૂલ આવી');
-    }
-  };
-
-  const stopQueryRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setIsRecordingQuery(false);
-    }
-  };
-
-  const speakText = (text) => {
-    if (!('speechSynthesis' in window) || !text) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'gu-IN';
-    utterance.rate = 0.9;
-    utterance.onend = () => setIsSpeakingQuery(false);
-    utterance.onerror = () => setIsSpeakingQuery(false);
-    setIsSpeakingQuery(true);
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const toggleQuerySpeech = () => {
-    if (isSpeakingQuery) {
-      window.speechSynthesis.cancel();
-      setIsSpeakingQuery(false);
-    } else if (queryResult?.answerText) {
-      speakText(queryResult.answerText);
-    }
-  };
 
   return (
     <div className="main-content" style={{ paddingBottom: '6rem' }}>
@@ -311,136 +207,6 @@ export default function MoreScreen() {
           );
         })}
       </div>
-
-      {/* Voice Query Modal */}
-      <AnimatePresence>
-        {showVoiceQueryModal && (
-          <div className="modal-overlay" role="dialog" aria-modal="true" style={{ zIndex: 10000 }}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-              className="confirmation-card"
-              style={{ maxWidth: '440px', width: '92%', textAlign: 'center' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.2rem', fontWeight: '800', color: '#60A5FA' }}>
-                  <HelpCircle size={24} color="#60A5FA" />
-                  <span>પ્રશ્ન પૂછો / Ask a Question</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn-icon"
-                  onClick={() => {
-                    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-                    setShowVoiceQueryModal(false);
-                  }}
-                  aria-label="Close modal"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {queryError && <div className="error-banner" style={{ marginBottom: '1rem' }}>{queryError}</div>}
-
-              {/* Recording / Query Active View */}
-              {isProcessingQuery ? (
-                <div style={{ padding: '2rem 0' }}>
-                  <Loader2 className="animate-spin" size={48} color="#60A5FA" style={{ margin: '0 auto 1rem' }} />
-                  <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#F8FAFC' }}>
-                    સમજી રહ્યા છીએ... / Thinking...
-                  </div>
-                </div>
-              ) : queryResult ? (
-                /* Answer Result View */
-                <div>
-                  <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', padding: '1.25rem', border: '1px solid rgba(96, 165, 250, 0.3)', marginBottom: '1.25rem', textAlign: 'center' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#F8FAFC', marginBottom: '0.5rem', lineHeight: '1.4' }}>
-                      {queryResult.answerText}
-                    </div>
-                    {queryResult.answerTextEnglish && (
-                      <div style={{ fontSize: '0.9rem', color: '#94A3B8', fontWeight: '500' }}>
-                        {queryResult.answerTextEnglish}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <motion.button
-                      whileTap={{ scale: 0.97 }}
-                      onClick={toggleQuerySpeech}
-                      style={{
-                        padding: '0.8rem',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid rgba(96, 165, 250, 0.4)',
-                        background: 'rgba(96, 165, 250, 0.2)',
-                        color: '#60A5FA',
-                        fontSize: '1rem',
-                        fontWeight: '700',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.5rem',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {isSpeakingQuery ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                      <span>{isSpeakingQuery ? 'અવાજ બંધ કરો' : 'ફરી સાંભળો / Listen'}</span>
-                    </motion.button>
-
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => {
-                        setQueryResult(null);
-                        startQueryRecording();
-                      }}
-                    >
-                      <RotateCcw size={18} />
-                      <span>બીજો પ્રશ્ન પૂછો / Ask Another Question</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* Mic Button Prompt */
-                <div>
-                  <p style={{ color: '#94A3B8', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: '1.4' }}>
-                    દા.ત. "આજે કેટલું વેચાણ થયું?", "રમેશભાઈનું બાકી ઉધાર કેટલું છે?" અથવા "ચોખાનો સ્ટોક કેટલો છે?"
-                  </p>
-
-                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.5rem' }}>
-                    <motion.button
-                      whileTap={{ scale: 0.92 }}
-                      whileHover={{ scale: 1.05 }}
-                      onClick={isRecordingQuery ? stopQueryRecording : startQueryRecording}
-                      style={{
-                        width: '90px',
-                        height: '90px',
-                        borderRadius: '50%',
-                        backgroundColor: isRecordingQuery ? '#EF4444' : '#2563EB',
-                        border: '3px solid rgba(255, 255, 255, 0.3)',
-                        boxShadow: isRecordingQuery ? '0 0 25px rgba(239, 68, 68, 0.6)' : '0 8px 25px rgba(37, 99, 235, 0.4)',
-                        color: '#FFFFFF',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Mic size={42} color="#FFFFFF" />
-                    </motion.button>
-                  </div>
-
-                  <div style={{ fontSize: '1rem', fontWeight: '700', color: isRecordingQuery ? '#EF4444' : '#F8FAFC' }}>
-                    {isRecordingQuery ? 'રેકોર્ડિંગ ચાલુ છે... (દબાવો બંધ કરવા)' : 'બોલવા માટે માઇક પર દબાવો / Tap to Ask'}
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
