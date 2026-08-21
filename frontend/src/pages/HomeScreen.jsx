@@ -539,7 +539,7 @@ export default function HomeScreen() {
           }
 
           const txType = mapIntentToTxType(result.intent);
-          const customerName = result.customer_name || 'ગ્રાહક (Unknown)';
+          const transcribedName = result.customer_name || 'ગ્રાહક (Unknown)';
           const amount = result.amount || 0;
           const phone = result.customer_phone || '';
           const suggestedName = result.suggested_customer_name || null;
@@ -548,8 +548,10 @@ export default function HomeScreen() {
 
           setParsedData({
             isStock: false,
-            customerName,
+            transcribedName,
+            customerName: transcribedName,
             suggestedName,
+            selectedNameChoice: 'transcribed', // 'transcribed' or 'suggested'
             nameConfidence,
             amount,
             txType,
@@ -560,7 +562,7 @@ export default function HomeScreen() {
           });
 
           // Pre-fill edit fields
-          setEditCustomerName(customerName);
+          setEditCustomerName(transcribedName);
           setEditAmount(amount.toString());
           setEditPhone(phone);
           setEditTxType(txType);
@@ -1497,60 +1499,63 @@ export default function HomeScreen() {
                 )}
               </div>
 
-              {/* Quick-select tap options if a suggested match or low name confidence */}
-              {(parsedData.suggestedName || parsedData.nameConfidence === 'low' || parsedData.nameConfidence === 'medium') && (
-                <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', backgroundColor: 'rgba(240, 198, 116, 0.08)', borderRadius: '8px', border: '1px solid rgba(240, 198, 116, 0.25)' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#F0C674', marginBottom: '0.4rem', fontWeight: '500' }}>
-                    🎯 ગ્રાહકનું નામ પસંદ કરો / Select Customer Name:
+              {/* Explicit customer choice prompt when a close match is suggested */}
+              {parsedData.suggestedName && parsedData.suggestedName !== (parsedData.transcribedName || parsedData.customerName) && (
+                <div style={{ marginTop: '0.85rem', padding: '0.85rem', backgroundColor: 'rgba(240, 198, 116, 0.12)', borderRadius: '10px', border: '1px solid rgba(240, 198, 116, 0.35)', textAlign: 'left' }}>
+                  <div style={{ fontSize: '0.9rem', color: '#F0C674', marginBottom: '0.6rem', fontWeight: '700', lineHeight: '1.3' }}>
+                    Maine સાંભળ્યું: <span style={{ color: '#F8FAFC', textDecoration: 'underline' }}>{parsedData.transcribedName || parsedData.customerName}</span>. શું આ '<span style={{ color: '#4ADE80' }}>{parsedData.suggestedName}</span>' છે? (તમારો હાલનો ગ્રાહક)
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '0.6rem', flexDirection: 'column' }}>
                     <button
                       type="button"
                       onClick={() => {
-                        setParsedData({ ...parsedData, customerName: parsedData.customerName });
-                        setEditCustomerName(parsedData.customerName);
+                        const target = parsedData.transcribedName || parsedData.customerName;
+                        setParsedData({ ...parsedData, customerName: target, selectedNameChoice: 'transcribed' });
+                        setEditCustomerName(target);
                       }}
                       style={{
-                        padding: '0.35rem 0.75rem',
-                        borderRadius: '6px',
+                        padding: '0.55rem 0.85rem',
+                        borderRadius: '8px',
                         fontSize: '0.85rem',
-                        border: editCustomerName === parsedData.customerName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
-                        backgroundColor: editCustomerName === parsedData.customerName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
+                        fontWeight: '700',
+                        textAlign: 'left',
+                        border: parsedData.selectedNameChoice === 'transcribed' ? '1.5px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: parsedData.selectedNameChoice === 'transcribed' ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
                         color: '#F8FAFC',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.3rem'
+                        justifyContent: 'space-between',
                       }}
                     >
-                      {editCustomerName === parsedData.customerName && <Check size={14} color="#F0C674" />}
-                      <span>{parsedData.customerName}</span>
+                      <span>ના, {parsedData.transcribedName || parsedData.customerName} જ છે / No, it's {parsedData.transcribedName || parsedData.customerName}</span>
+                      {parsedData.selectedNameChoice === 'transcribed' && <Check size={16} color="#F0C674" />}
                     </button>
 
-                    {parsedData.suggestedName && parsedData.suggestedName !== parsedData.customerName && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setParsedData({ ...parsedData, customerName: parsedData.suggestedName });
-                          setEditCustomerName(parsedData.suggestedName);
-                        }}
-                        style={{
-                          padding: '0.35rem 0.75rem',
-                          borderRadius: '6px',
-                          fontSize: '0.85rem',
-                          border: editCustomerName === parsedData.suggestedName ? '1px solid #F0C674' : '1px solid rgba(255,255,255,0.2)',
-                          backgroundColor: editCustomerName === parsedData.suggestedName ? 'rgba(240, 198, 116, 0.25)' : 'rgba(255,255,255,0.05)',
-                          color: '#F8FAFC',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.3rem'
-                        }}
-                      >
-                        {editCustomerName === parsedData.suggestedName && <Check size={14} color="#F0C674" />}
-                        <span>{parsedData.suggestedName} (Existing)</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setParsedData({ ...parsedData, customerName: parsedData.suggestedName, selectedNameChoice: 'suggested' });
+                        setEditCustomerName(parsedData.suggestedName);
+                      }}
+                      style={{
+                        padding: '0.55rem 0.85rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: '700',
+                        textAlign: 'left',
+                        border: parsedData.selectedNameChoice === 'suggested' ? '1.5px solid #4ADE80' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: parsedData.selectedNameChoice === 'suggested' ? 'rgba(74, 222, 128, 0.2)' : 'rgba(255,255,255,0.05)',
+                        color: '#F8FAFC',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>હા, {parsedData.suggestedName} છે / Yes, it's {parsedData.suggestedName}</span>
+                      {parsedData.selectedNameChoice === 'suggested' && <Check size={16} color="#4ADE80" />}
+                    </button>
                   </div>
                 </div>
               )}

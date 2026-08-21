@@ -756,6 +756,14 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(findSuggestedCustomerName('રમેશ', existing)).toBeNull();
         expect(findSuggestedCustomerName('વિક્રમ', existing)).toBeNull();
       });
+
+      it('does NOT match clearly different names such as Bhagubhai vs Valkubhai', () => {
+        const existingGujarati = ['વાળકુભાઈ', 'રમેશ'];
+        expect(findSuggestedCustomerName('ભાગુભાઈ', existingGujarati)).toBeNull();
+
+        const existingEnglish = ['Valkubhai', 'Ramesh'];
+        expect(findSuggestedCustomerName('Bhagubhai', existingEnglish)).toBeNull();
+      });
     });
 
     describe('POST /api/voice/process', () => {
