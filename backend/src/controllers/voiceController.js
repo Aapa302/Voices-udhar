@@ -132,6 +132,43 @@ function findSuggestedCustomerName(extractedName, existingCustomerNames) {
 const customerCache = new Map();
 const CUSTOMER_CACHE_TTL_MS = 60000;
 
+// In-memory multi-turn conversation context per shopkeeper session (5 minute TTL)
+const conversationContextMap = new Map();
+const CONVERSATION_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Gets the recent conversation context for a shopkeeper session.
+ */
+function getConversationContext(shopkeeperId, shopId) {
+  if (!shopkeeperId) return [];
+  const key = `${shopkeeperId}_${shopId || `shop_${shopkeeperId}`}`;
+  const contextData = conversationContextMap.get(key);
+  if (!contextData) return [];
+
+  // Expire after 5 minutes of inactivity
+  if (Date.now() - contextData.lastUpdated > CONVERSATION_TTL_MS) {
+    conversationContextMap.delete(key);
+    return [];
+  }
+
+  return contextData.turns || [];
+}
+
+/**
+ * Saves a new conversation turn to the shopkeeper session context (keeps last 3 turns).
+ */
+function recordConversationTurn(shopkeeperId, shopId, turn) {
+  if (!shopkeeperId || !turn) return;
+  const key = `${shopkeeperId}_${shopId || `shop_${shopkeeperId}`}`;
+  const current = getConversationContext(shopkeeperId, shopId);
+
+  const updatedTurns = [...current, turn].slice(-3); // Keep only last 3 turns
+  conversationContextMap.set(key, {
+    turns: updatedTurns,
+    lastUpdated: Date.now(),
+  });
+}
+
 /**
  * Helper to fetch customer names with 60s in-memory caching and 50 record limit.
  */
@@ -605,6 +642,75 @@ async function handleCustomerBalanceQuery(shopkeeperId, customerName, shopId, su
       : `Customer name was not specified.`;
 
   return { customerName: customerDisplayName, balance, answerText, answerTextEnglish };
+}
+
+/**
+ * Helper to query customer phone number for query endpoint.
+ */
+async function handleCustomerPhoneQuery(shopkeeperId, customerName, shopId) {
+  let customerDisplayName = customerName || 'ગ્રાહક';
+  let phone = null;
+  let customerFound = false;
+  const effectiveShopId = shopId || (shopkeeperId ? `shop_${shopkeeperId}` : null);
+
+  if (shopkeeperId && customerName) {
+    try {
+      const snapshot = await db.collection('customers')
+        .where('shopkeeperId', '==', shopkeeperId)
+        .get();
+
+      const customers = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (isDocInShop(data, effectiveShopId, shopkeeperId)) {
+          customers.push(data);
+        }
+      });
+
+      if (customers.length > 0) {
+        const normTarget = normalizeGujaratiPhonetics(customerName);
+        let bestMatch = null;
+        let minDist = Infinity;
+
+        for (const cust of customers) {
+          if (!cust.name) continue;
+          const normName = normalizeGujaratiPhonetics(cust.name);
+          if (normTarget && normTarget === normName) {
+            bestMatch = cust;
+            minDist = 0;
+            break;
+          }
+          const dist = levenshteinDistance(normTarget, normName);
+          if (dist < minDist) {
+            minDist = dist;
+            bestMatch = cust;
+          }
+        }
+
+        if (bestMatch && (minDist <= 1 || (normTarget.length >= 6 && minDist <= 2 && minDist / normTarget.length <= 0.15) || normTarget === normalizeGujaratiPhonetics(bestMatch.name))) {
+          customerDisplayName = bestMatch.name;
+          phone = bestMatch.phone && bestMatch.phone !== '0000000000' ? bestMatch.phone : null;
+          customerFound = true;
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching customer phone for query:', err.message);
+    }
+  }
+
+  const answerText = customerFound
+    ? (phone ? `${customerDisplayName}નો ફોન નંબર ${phone} છે.` : `${customerDisplayName}નો ફોન નંબર નોંધાયેલ નથી.`)
+    : customerName
+      ? `${customerName} નામના કોઈ ગ્રાહક મળ્યા નથી.`
+      : `ગ્રાહકનું નામ સ્પષ્ટ નથી.`;
+
+  const answerTextEnglish = customerFound
+    ? (phone ? `${customerDisplayName}'s phone number is ${phone}.` : `${customerDisplayName} has no phone number recorded.`)
+    : customerName
+      ? `No customer named ${customerName} was found.`
+      : `Customer name was not specified.`;
+
+  return { customerName: customerDisplayName, phone, answerText, answerTextEnglish };
 }
 
 /**
@@ -1368,13 +1474,39 @@ const processVoiceQuery = async (req, res) => {
 
       const effectiveShopId = getEffectiveShopId(req);
 
-      if (qType === 'customer_balance') {
-        const custName = mockCustomerName || req.body.mockItemName || (sType ? null : 'Ramesh');
-        const result = await handleCustomerBalanceQuery(shopkeeperId, custName, effectiveShopId, sType);
+      if (qType === 'customer_balance' || sType === 'phone_number') {
+        const recentTurns = getConversationContext(shopkeeperId, effectiveShopId);
+        let activeCustName = mockCustomerName || req.body.mockCustomerName || (sType ? null : 'Ramesh');
+
+        if (!activeCustName && recentTurns.length > 0) {
+          const lastCustTurn = [...recentTurns].reverse().find((t) => t.customer_name);
+          if (lastCustTurn) activeCustName = lastCustTurn.customer_name;
+        }
+
+        let result;
+        if (sType === 'phone_number') {
+          result = await handleCustomerPhoneQuery(shopkeeperId, activeCustName, effectiveShopId);
+        } else {
+          result = await handleCustomerBalanceQuery(shopkeeperId, activeCustName, effectiveShopId, sType);
+        }
+
+        const resolvedCustomerName = (result && result.customerName && result.customerName !== 'ગ્રાહક') ? result.customerName : activeCustName;
+
+        recordConversationTurn(shopkeeperId, effectiveShopId, {
+          queryText: 'mock query',
+          customer_name: resolvedCustomerName,
+          item_name: null,
+          queryType: 'customer_balance',
+          subType: sType,
+          answerText: result.answerText,
+          answerTextEnglish: result.answerTextEnglish,
+        });
+
         return res.status(200).json({
           isQuery: true,
           queryType: 'customer_balance',
           subType: sType,
+          customer_name: resolvedCustomerName,
           answerText: result.answerText,
           answerTextEnglish: result.answerTextEnglish,
         });
@@ -1447,9 +1579,32 @@ const processVoiceQuery = async (req, res) => {
 
     const customerContextListStr = existingCustomerNames.length > 0 ? existingCustomerNames.join(', ') : 'None';
 
+    const recentTurns = getConversationContext(shopkeeperId, effectiveShopId);
+    let conversationHistoryStr = 'None';
+    if (recentTurns.length > 0) {
+      conversationHistoryStr = recentTurns.map((t, idx) => {
+        return `Turn ${idx + 1}:
+  - User Query / Spoken Intent: "${t.queryText || ''}"
+  - Customer Mentioned: ${t.customer_name || 'None'}
+  - Item Mentioned: ${t.item_name || 'None'}
+  - Query Type: ${t.queryType || 'None'}
+  - System Answer: "${t.answerTextEnglish || t.answerText || ''}"`;
+      }).join('\n');
+    }
+
     const prompt = `
 You are an expert multilingual speech recognition and voice query assistant for Indian shopkeepers.
 Analyze the provided audio recording. Note that the speaker may speak in Gujarati, Hindi, English, or any mix of these three languages (e.g. Gujarati sentence with Hindi or English words). Auto-detect the language(s) used and transcribe accurately regardless of which language or mix is used.
+
+MULTi-TURN CONVERSATION MEMORY & PRONOUN RESOLUTION:
+Recent Conversation History:
+${conversationHistoryStr}
+
+If the current voice query uses pronouns or implicit references like "uska", "usko", "wo", "woh", "usme se", "eni", "tenu", "his", "her", "their" without naming anyone/anything specific, inspect the Recent Conversation History above:
+- If previous turn(s) discussed a specific customer (e.g. Ramesh), resolve "customer_name" to that customer name ("Ramesh").
+- If previous turn(s) discussed a specific item (e.g. Parle-G), resolve "item_name" to that item name ("Parle-G").
+- If the follow-up asks for phone number, address, or details about the previous customer (e.g., "aur uska phone number kya hai", "no. sho chhe"), classify queryType as "customer_balance" or "customer_history" and extract customer_name as the previous customer name.
+- IF THE FOLLOW-UP QUERY CHANGES TOPIC ENTIRELY (e.g., mentions a different customer like "Suresh" or a new topic like sales comparison), update customer_name / item_name to the NEW entity being discussed and do NOT stick to the old context.
 
 Task:
 1. Determine if the user is asking a QUESTION/QUERY (asking for info like customer balance, history, sales, inventory, business insights) OR making a TRANSACTION instruction (recording sale/udhaar/stock change).
@@ -1573,99 +1728,143 @@ Return ONLY a valid JSON object without markdown formatting:
     const totalMs = Date.now() - reqStart;
     console.log(`[Voice Query Timing] [${new Date().toISOString()}] [3/3] End-to-End Voice Query Completed | Total Time: ${totalMs}ms (Firestore: ${firestoreFetchMs}ms, Gemini: ${geminiCallMs}ms)`);
 
-    if (queryType === 'customer_balance') {
-      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId, parsedResult.subType);
-      return res.status(200).json({
+    // Check conversation history for entity fallback if current entity is missing
+    let activeCustomerName = parsedResult.customer_name;
+    let activeItemName = parsedResult.item_name;
+
+    if (!activeCustomerName && recentTurns.length > 0) {
+      const lastCustTurn = [...recentTurns].reverse().find((t) => t.customer_name);
+      if (lastCustTurn && lastCustTurn.customer_name) {
+        activeCustomerName = lastCustTurn.customer_name;
+      }
+    }
+
+    if (!activeItemName && recentTurns.length > 0) {
+      const lastItemTurn = [...recentTurns].reverse().find((t) => t.item_name);
+      if (lastItemTurn && lastItemTurn.item_name) {
+        activeItemName = lastItemTurn.item_name;
+      }
+    }
+
+    let finalResponse = null;
+
+    if (parsedResult.subType === 'phone_number' || (parsedResult.answerTextEnglish && parsedResult.answerTextEnglish.toLowerCase().includes('phone'))) {
+      const phoneResult = await handleCustomerPhoneQuery(shopkeeperId, activeCustomerName, effectiveShopId);
+      finalResponse = {
+        isQuery: true,
+        queryType: 'customer_balance',
+        subType: 'phone_number',
+        customer_name: activeCustomerName,
+        answerText: phoneResult.answerText,
+        answerTextEnglish: phoneResult.answerTextEnglish,
+      };
+    } else if (queryType === 'customer_balance') {
+      const balanceResult = await handleCustomerBalanceQuery(shopkeeperId, activeCustomerName, effectiveShopId, parsedResult.subType);
+      finalResponse = {
         isQuery: true,
         queryType: 'customer_balance',
         subType: parsedResult.subType,
+        customer_name: activeCustomerName,
         answerText: balanceResult.answerText,
         answerTextEnglish: balanceResult.answerTextEnglish,
-      });
+      };
     } else if (queryType === 'customer_history') {
-      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
-      return res.status(200).json({
+      const historyResult = await handleCustomerHistoryQuery(shopkeeperId, activeCustomerName, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
+      finalResponse = {
         isQuery: true,
         queryType: 'customer_history',
         timeframe: parsedResult.timeframe,
         actionType: parsedResult.actionType,
+        customer_name: activeCustomerName,
         answerText: historyResult.answerText,
         answerTextEnglish: historyResult.answerTextEnglish,
-      });
+      };
     } else if (queryType === 'inventory_status') {
-      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name, effectiveShopId, parsedResult.subType);
-      return res.status(200).json({
+      const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, activeItemName, effectiveShopId, parsedResult.subType);
+      finalResponse = {
         isQuery: true,
         queryType: 'inventory_status',
         subType: parsedResult.subType,
+        item_name: activeItemName,
         answerText: inventoryResult.answerText,
         answerTextEnglish: inventoryResult.answerTextEnglish,
-      });
+      };
     } else if (queryType === 'inventory_low_stock') {
       const lowStockResult = await handleInventoryLowStockQuery(shopkeeperId, effectiveShopId);
-      return res.status(200).json({
+      finalResponse = {
         isQuery: true,
         queryType: 'inventory_low_stock',
         answerText: lowStockResult.answerText,
         answerTextEnglish: lowStockResult.answerTextEnglish,
-      });
+      };
     } else if (queryType === 'daily_summary') {
       const summaryResult = await handleDailySummaryQuery(shopkeeperId, effectiveShopId, parsedResult.subType);
-      return res.status(200).json({
+      finalResponse = {
         isQuery: true,
         queryType: 'daily_summary',
         subType: parsedResult.subType,
         answerText: summaryResult.answerText,
         answerTextEnglish: summaryResult.answerTextEnglish,
-      });
+      };
     } else if (queryType === 'business_insights') {
       const insightResult = await handleBusinessInsightsQuery(shopkeeperId, effectiveShopId, parsedResult.subType);
-      return res.status(200).json({
+      finalResponse = {
         isQuery: true,
         queryType: 'business_insights',
         subType: parsedResult.subType,
         answerText: insightResult.answerText,
         answerTextEnglish: insightResult.answerTextEnglish,
-      });
+      };
     } else {
       // Smart Fallback Handling: check if customer, item, or timeframe was extracted
-      if (parsedResult.customer_name) {
-        const historyResult = await handleCustomerHistoryQuery(shopkeeperId, parsedResult.customer_name, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
-        return res.status(200).json({
+      if (activeCustomerName) {
+        const historyResult = await handleCustomerHistoryQuery(shopkeeperId, activeCustomerName, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
+        finalResponse = {
           isQuery: true,
           queryType: 'customer_history',
+          customer_name: activeCustomerName,
           answerText: historyResult.answerText,
           answerTextEnglish: historyResult.answerTextEnglish,
-        });
-      }
-
-      if (parsedResult.item_name) {
-        const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, parsedResult.item_name, effectiveShopId, parsedResult.subType);
-        return res.status(200).json({
+        };
+      } else if (activeItemName) {
+        const inventoryResult = await handleInventoryStatusQuery(shopkeeperId, activeItemName, effectiveShopId, parsedResult.subType);
+        finalResponse = {
           isQuery: true,
           queryType: 'inventory_status',
+          item_name: activeItemName,
           answerText: inventoryResult.answerText,
           answerTextEnglish: inventoryResult.answerTextEnglish,
-        });
-      }
-
-      if (parsedResult.timeframe) {
+        };
+      } else if (parsedResult.timeframe) {
         const historyResult = await handleCustomerHistoryQuery(shopkeeperId, null, effectiveShopId, parsedResult.timeframe, parsedResult.actionType);
-        return res.status(200).json({
+        finalResponse = {
           isQuery: true,
           queryType: 'customer_history',
           answerText: historyResult.answerText,
           answerTextEnglish: historyResult.answerTextEnglish,
-        });
+        };
+      } else {
+        finalResponse = {
+          isQuery: true,
+          queryType: 'general',
+          answerText: parsedResult.answerText || 'શું તમે કોઈ ચોક્કસ ગ્રાહક, વસ્તુ અથવા વેચાણ વિશે પૂછવા માંગો છો?',
+          answerTextEnglish: parsedResult.answerTextEnglish || 'Are you asking about a specific customer, item, or sale?',
+        };
       }
-
-      return res.status(200).json({
-        isQuery: true,
-        queryType: 'general',
-        answerText: parsedResult.answerText || 'શું તમે કોઈ ચોક્કસ ગ્રાહક, વસ્તુ અથવા વેચાણ વિશે પૂછવા માંગો છો?',
-        answerTextEnglish: parsedResult.answerTextEnglish || 'Are you asking about a specific customer, item, or sale?',
-      });
     }
+
+    // Record this turn into multi-turn conversation memory
+    recordConversationTurn(shopkeeperId, effectiveShopId, {
+      queryText: parsedResult.answerTextEnglish || parsedResult.answerText || '',
+      customer_name: activeCustomerName,
+      item_name: activeItemName,
+      queryType: finalResponse.queryType,
+      subType: finalResponse.subType,
+      answerText: finalResponse.answerText,
+      answerTextEnglish: finalResponse.answerTextEnglish,
+    });
+
+    return res.status(200).json(finalResponse);
   } catch (error) {
     console.error('Error processing voice query:', error);
     return res.status(500).json({

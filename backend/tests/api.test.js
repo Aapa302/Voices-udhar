@@ -1121,6 +1121,50 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(resBestSelling.body.isQuery).toBe(true);
       });
 
+      it('should handle multi-turn conversation memory and pronoun resolution for follow-up questions', async () => {
+        // Turn 1: Ask about Ramesh's balance
+        const resTurn1 = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('Ramesh ka kitna udhaar hai').toString('base64'),
+            mockQueryType: 'customer_balance',
+            mockCustomerName: 'Ramesh Kumar',
+          });
+
+        expect(resTurn1.status).toBe(200);
+        expect(resTurn1.body.isQuery).toBe(true);
+        expect(resTurn1.body.customer_name).toBe('Ramesh Kumar');
+
+        // Turn 2: Ask follow-up "aur uska phone number kya hai?" without repeating the customer name
+        const resTurn2 = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('aur uska phone number kya hai').toString('base64'),
+            mockSubType: 'phone_number',
+          });
+
+        expect(resTurn2.status).toBe(200);
+        expect(resTurn2.body.isQuery).toBe(true);
+        expect(resTurn2.body.customer_name).toBe('Ramesh Kumar');
+        expect(resTurn2.body.answerText).toContain('Ramesh Kumar');
+        expect(resTurn2.body.answerText).toContain('9988776655');
+
+        // Turn 3: Topic change to Suresh
+        const resTurn3 = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('Suresh ka kitna udhaar hai').toString('base64'),
+            mockQueryType: 'customer_balance',
+            mockCustomerName: 'Suresh Bhai',
+          });
+
+        expect(resTurn3.status).toBe(200);
+        expect(resTurn3.body.customer_name).toBe('Suresh Bhai');
+      });
+
       it('should handle business_insights query types (today_earnings, monthly_overview, suggestions)', async () => {
         const resEarnings = await request(app)
           .post('/api/voice/query')
