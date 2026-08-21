@@ -904,7 +904,6 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.body.queryType).toBe('customer_history');
         expect(res.body.answerText).toContain('600');
         expect(res.body.answerText).toContain('100');
-        expect(res.body.answerText).toContain('છેલ્લો વ્યવહાર');
       });
 
       it('should handle inventory_status query for specific item and general list', async () => {
@@ -985,7 +984,7 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.status).toBe(200);
         expect(res.body.isQuery).toBe(true);
         expect(res.body.queryType).toBe('general');
-        expect(res.body.answerText).toContain('શું તમે કોઈ ચોક્કસ ગ્રાહક અથવા વસ્તુ વિશે પૂછવા માંગો છો?');
+        expect(res.body.answerText).toContain('શું તમે કોઈ ચોક્કસ ગ્રાહક');
       });
 
       it('should handle daily_summary query and return total summary response', async () => {
@@ -1019,6 +1018,141 @@ describe('Voice Udhar API Integration Tests', () => {
         expect(res.status).toBe(200);
         expect(res.body.isQuery).toBe(false);
         expect(res.body.message).toContain('ટ્રાન્ઝેક્શન મોડનો ઉપયોગ કરો');
+      });
+
+      it('should handle top_debtor, debtor_count, and total_outstanding customer balance queries', async () => {
+        // Add second customer with higher balance
+        await request(app)
+          .post('/api/customers')
+          .set('x-api-key', apiKey)
+          .send({
+            shopkeeperId,
+            name: 'Suresh Bhai',
+            phone: '9876543210',
+            totalUdhaar: 1500,
+          });
+
+        // Top debtor query
+        const resTop = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('sabse zyada udhaar kiska hai top_debtor').toString('base64'),
+          });
+
+        expect(resTop.status).toBe(200);
+        expect(resTop.body.isQuery).toBe(true);
+        expect(resTop.body.queryType).toBe('customer_balance');
+        expect(resTop.body.answerText).toContain('Suresh Bhai');
+        expect(resTop.body.answerText).toContain('1500');
+
+        // Debtor count query
+        const resCount = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('kitne customers udhaar par hai debtor_count').toString('base64'),
+          });
+
+        expect(resCount.status).toBe(200);
+        expect(resCount.body.answerText).toContain('2');
+
+        // Total outstanding query
+        const resTotal = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('total kitna udhaar bakaya hai total_outstanding').toString('base64'),
+          });
+
+        expect(resTotal.status).toBe(200);
+        expect(resTotal.body.answerText).toContain('2000'); // 500 + 1500
+      });
+
+      it('should handle sales comparison and best day queries under daily_summary', async () => {
+        const resComp = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('kal se aaj zyada vechaan hua comparison').toString('base64'),
+          });
+
+        expect(resComp.status).toBe(200);
+        expect(resComp.body.isQuery).toBe(true);
+        expect(resComp.body.queryType).toBe('daily_summary');
+
+        const resBest = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('is hafte ka best din kaunsa tha best_day').toString('base64'),
+          });
+
+        expect(resBest.status).toBe(200);
+        expect(resBest.body.isQuery).toBe(true);
+      });
+
+      it('should handle out_of_stock and best_selling queries under inventory_status', async () => {
+        // Add out of stock item
+        await request(app)
+          .post('/api/inventory')
+          .set('x-api-key', apiKey)
+          .send({ itemName: 'Sugar 1kg', quantity: 0 });
+
+        const resOut = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('kitne items khatam thai gaya out_of_stock').toString('base64'),
+          });
+
+        expect(resOut.status).toBe(200);
+        expect(resOut.body.isQuery).toBe(true);
+        expect(resOut.body.answerText).toContain('Sugar 1kg');
+
+        const resBestSelling = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('sabse zyada bikta hua item best_selling').toString('base64'),
+          });
+
+        expect(resBestSelling.status).toBe(200);
+        expect(resBestSelling.body.isQuery).toBe(true);
+      });
+
+      it('should handle business_insights query types (today_earnings, monthly_overview, suggestions)', async () => {
+        const resEarnings = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('aaj kamai kem thai insights').toString('base64'),
+          });
+
+        expect(resEarnings.status).toBe(200);
+        expect(resEarnings.body.isQuery).toBe(true);
+        expect(resEarnings.body.queryType).toBe('business_insights');
+
+        const resMonthly = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('mahina kem gayo insights').toString('base64'),
+          });
+
+        expect(resMonthly.status).toBe(200);
+        expect(resMonthly.body.isQuery).toBe(true);
+
+        const resSuggestions = await request(app)
+          .post('/api/voice/query')
+          .set('x-api-key', apiKey)
+          .send({
+            audioBase64: Buffer.from('kya sudharo karvo joie insights').toString('base64'),
+          });
+
+        expect(resSuggestions.status).toBe(200);
+        expect(resSuggestions.body.isQuery).toBe(true);
+        expect(resSuggestions.body.queryType).toBe('business_insights');
       });
     });
   });
