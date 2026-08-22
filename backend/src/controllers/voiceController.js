@@ -2,6 +2,13 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { generateWithFallback } = require('../config/geminiModelResolver');
 const { db } = require('../config/firebase');
 const { getEffectiveShopId, isDocInShop } = require('../utils/shopHelper');
+const {
+  isKnownFirstName,
+  isKnownSurname,
+  findClosestFirstName,
+  findClosestSurname,
+  getSuggestedNameCorrection,
+} = require('../utils/nameReference');
 
 /**
  * Calculates Levenshtein distance between two strings.
@@ -299,14 +306,19 @@ const processVoice = async (req, res) => {
         });
       }
 
-      const mockName = 'Ramesh';
+      const mockName = req.body.mockCustomerName || 'Ramesh';
       const suggested = findSuggestedCustomerName(mockName, existingCustomerNames);
+      let mockSuggestedCorrection = null;
+      if (!suggested) {
+        mockSuggestedCorrection = getSuggestedNameCorrection(mockName);
+      }
       return res.status(200).json({
         transcription_gujarati: 'રમેશ ભાઈ ૫૦ રૂપિયા ઉધાર ખાંડ અને ચા',
         translation_english: 'Ramesh bhai 50 rupees credit sugar and tea',
         intent: 'add_udhaar',
         customer_name: mockName,
         suggested_customer_name: suggested,
+        suggestedCorrection: mockSuggestedCorrection,
         name_confidence: 'high',
         amount: 50,
         items: ['sugar', 'tea'],
@@ -336,6 +348,7 @@ CRITICAL INSTRUCTIONS:
    - Transcribe the customer name EXACTLY as spoken in the audio recording. Do NOT alter, force-fit, or replace a newly spoken customer name with any name from the existing customer list unless the speaker actually spoke that exact name.
    - Existing Customer List for this shop: [ ${customerContextListStr} ]
    - Use the existing customer list ONLY as spelling context if the exact same name was spoken. If a genuinely different name is spoken (e.g., "Bhagubhai" or "ભાગુભાઈ"), transcribe it strictly as spoken. Do NOT substitute it with a similar existing name (e.g. "Valkubhai" or "વાળકુભાઈ").
+   - Gujarati/Indian customer names in this shop context are typically drawn from common regional first names (e.g., Bhavesh, Ramesh, Kavita, Priya) and surnames (e.g., Patel, Shah, Mehta, Solanki, Popat, Jani). If a transcribed name sounds unclear or ambiguous, prefer transcribing it as a phonetically close, commonly-used Gujarati name rather than an unusual or invented-sounding one.
 
 Task:
 1. Transcribe the spoken audio accurately in Gujarati script or relevant mixed text (transcription_gujarati).
@@ -461,6 +474,13 @@ Return ONLY a valid JSON object without any Markdown formatting or code block ma
     // Run generic fuzzy matching against existing customer list
     const suggestedName = findSuggestedCustomerName(parsedResult.customer_name, existingCustomerNames);
     parsedResult.suggested_customer_name = suggestedName;
+
+    // Reference CSV matching for new customer names
+    let suggestedCorrection = null;
+    if (parsedResult.customer_name && !suggestedName) {
+      suggestedCorrection = getSuggestedNameCorrection(parsedResult.customer_name);
+    }
+    parsedResult.suggestedCorrection = suggestedCorrection;
 
     if (!parsedResult.name_confidence) {
       parsedResult.name_confidence = parsedResult.customer_name ? 'medium' : 'low';
