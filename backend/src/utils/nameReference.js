@@ -168,6 +168,7 @@ function findClosestSurname(transcribedName, maxDistance = 2) {
 
 /**
  * Checks transcribed customer name against known first names and surnames reference lists.
+ * Handles single names (first name only) or multi-word names (first name + middle parts + surname).
  * Returns suggested correction string if close match found, or null.
  */
 function getSuggestedNameCorrection(customerName) {
@@ -176,23 +177,36 @@ function getSuggestedNameCorrection(customerName) {
   if (!clean) return null;
 
   const parts = clean.split(/\s+/);
-  const firstName = parts[0];
-  const surname = parts.length > 1 ? parts.slice(1).join(' ') : null;
+
+  if (parts.length === 1) {
+    const firstName = parts[0];
+    if (!isKnownFirstName(firstName)) {
+      const correctedFirst = findClosestFirstName(firstName, 2);
+      if (correctedFirst && correctedFirst.toLowerCase() !== firstName.toLowerCase()) {
+        return correctedFirst;
+      }
+    }
+    return null;
+  }
+
+  const firstPart = parts[0];
+  const lastPart = parts[parts.length - 1];
+  const middleParts = parts.slice(1, -1);
 
   let correctedFirstName = null;
-  if (!isKnownFirstName(firstName)) {
-    correctedFirstName = findClosestFirstName(firstName, 2);
+  if (!isKnownFirstName(firstPart)) {
+    correctedFirstName = findClosestFirstName(firstPart, 2);
   }
 
   let correctedSurname = null;
-  if (surname && !isKnownSurname(surname)) {
-    correctedSurname = findClosestSurname(surname, 2);
+  if (!isKnownSurname(lastPart)) {
+    correctedSurname = findClosestSurname(lastPart, 2);
   }
 
   if (correctedFirstName || correctedSurname) {
-    const finalFirst = correctedFirstName || firstName;
-    const finalSurname = correctedSurname || (surname || '');
-    const suggested = (finalFirst + ' ' + finalSurname).trim();
+    const finalFirst = correctedFirstName || firstPart;
+    const finalSurname = correctedSurname || lastPart;
+    const suggested = [finalFirst, ...middleParts, finalSurname].join(' ').trim();
     if (suggested.toLowerCase() !== clean.toLowerCase()) {
       return suggested;
     }

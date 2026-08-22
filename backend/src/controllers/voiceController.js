@@ -360,7 +360,7 @@ Task:
    - "add_stock": Adding new stock or inventory received (e.g. "5 packet Parle-G aayu", "10 kg sugar aavi").
    - "reduce_stock": Reducing or selling stock/inventory (e.g. "2 packet Parle-G becha", "stock ochhu thayu").
    - "unclear": If the audio is not clear or intent cannot be determined.
-4. Extract customer name if mentioned (customer_name) - string or null.
+4. Extract full customer name if mentioned (customer_name) - string or null. Extract the FULL customer name exactly as spoken — including both first name and surname/last name if both are present in the sentence (e.g., "Badrubhai Bhukan", not just "Badrubhai"). Do NOT guess, invent, or auto-complete a surname if only a first name was spoken.
 5. Assess name confidence specifically (name_confidence): "high", "medium", or "low".
 6. Extract total amount in rupees (amount) - number or 0.
 7. Extract list of items mentioned (items) - array of strings or empty array.
