@@ -48,7 +48,11 @@ describe('Gujarati Name Reference Reference Utility', () => {
     // Full name correction: "Rames Pate" -> "Ramesh Patel"
     expect(getSuggestedNameCorrection('Rames Pate')).toBe('Ramesh Patel');
 
-    // Already correct name returns null
+    // Full name correction with surname typo: "Badrubhai Bhukag" -> "Badrubhai Bhukan"
+    expect(getSuggestedNameCorrection('Badrubhai Bhukag')).toBe('Badrubhai Bhukan');
+
+    // Correct full name returns null (no correction needed)
+    expect(getSuggestedNameCorrection('Badrubhai Bhukan')).toBeNull();
     expect(getSuggestedNameCorrection('Ramesh Patel')).toBeNull();
 
     // Completely unknown name returns null
