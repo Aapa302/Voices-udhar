@@ -3,4 +3,6 @@
 > node src/server.js
 
 Voice Udhar Backend running on port 5000
+[Gemini] Loaded model health from Firestore: (no failure history found)
 [Gemini] GEMINI_API_KEY missing. Using default candidate models list: gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro
+Terminated
